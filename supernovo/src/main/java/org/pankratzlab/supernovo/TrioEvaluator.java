@@ -97,8 +97,10 @@ public class TrioEvaluator {
     File serOutput = formSerializedOutput(output);
     final ImmutableList<DeNovoResult> results;
     if (serOutput.exists()) {
+      App.LOG.info("Serialized output already exists, loading...");
       try {
         results = deserializeResults(serOutput);
+        App.LOG.info("Serialized output loaded");
       } catch (ClassNotFoundException e) {
         App.LOG.error("Error loading serialized results", e);
         return;
@@ -117,8 +119,9 @@ public class TrioEvaluator {
                           .filter(Optional::isPresent)
                           .map(Optional::get))
               .collect(ImmutableList.toImmutableList());
-      serializeResults(results, serOutput);
     }
+    DeNovoResult.retrieveAnnos(results);
+    serializeResults(results, serOutput);
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
       writer.println(OutputFields.generateHeader(DeNovoResult.class));
       results.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
