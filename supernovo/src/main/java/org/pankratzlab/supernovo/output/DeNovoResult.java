@@ -1,8 +1,17 @@
 package org.pankratzlab.supernovo.output;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.lang.ProcessBuilder.Redirect;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
+import org.apache.logging.log4j.Level;
+import org.pankratzlab.supernovo.App;
 import org.pankratzlab.supernovo.HaplotypeEvaluator;
 import org.pankratzlab.supernovo.PileAllele;
 import org.pankratzlab.supernovo.ReferencePosition;
@@ -12,6 +21,15 @@ import org.pankratzlab.supernovo.pileup.Depth;
 import org.pankratzlab.supernovo.pileup.Pileup;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import htsjdk.variant.variantcontext.Allele;
+import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.variantcontext.VariantContextBuilder;
+import htsjdk.variant.variantcontext.writer.VariantContextWriter;
+import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder;
+import htsjdk.variant.vcf.VCFHeader;
+import htsjdk.variant.vcf.VCFIterator;
+import htsjdk.variant.vcf.VCFIteratorBuilder;
 
 public class DeNovoResult implements OutputFields, Serializable {
 
@@ -119,6 +137,14 @@ public class DeNovoResult implements OutputFields, Serializable {
 
   private static final String NO_NON_SUPERNOVO_REASON = ".";
 
+  private static final String SNP_EFF_JAR = "/home/pankrat2/public/bin/snpEff/snpEff.jar";
+  private static final String SNPEFF_GENOME = "hg19";
+  private static final String SNPEFF_ANN_FIELD = "ANN";
+  private static final String SNPEFF_ANN_DELIM = "[\\s]?\\|[\\s]?";
+  private static final String SNPEFF_GENE = "Gene_Name";
+  private static final String SNPEFF_ANNO = "Annotation";
+  private static final String SNPEFF_IMPACT = "Annotation_Impact";
+
   public final String chr;
   public final int position;
   public final PileAllele refAllele;
@@ -139,6 +165,9 @@ public class DeNovoResult implements OutputFields, Serializable {
   public final Sample child;
   public final Sample p1;
   public final Sample p2;
+  public String snpeffGene;
+  public String snpeffAnnotation;
+  public String snpeffImpact;
 
   private final ReferencePosition pos;
   private final HaplotypeEvaluator.Result hapResults;
@@ -206,5 +235,115 @@ public class DeNovoResult implements OutputFields, Serializable {
     else if (hapResults.getOtherTriallelics() != 0) nonSuperNovoReason = "Triallelics in region";
     else nonSuperNovoReason = NO_NON_SUPERNOVO_REASON;
     superNovo = nonSuperNovoReason.equals(NO_NON_SUPERNOVO_REASON);
+  }
+
+  public VariantContext generateVariantContext() {
+    ImmutableList.Builder<Allele> allelesBuilder = ImmutableList.builder();
+    allelesBuilder.add(Allele.create(refAllele.toString(), true));
+    allelesBuilder.addAll(altAllele.transform(a -> Allele.create(a.toString(), false)).asSet());
+    List<Allele> alleles = allelesBuilder.build();
+    return new VariantContextBuilder()
+        .source("SuperNovo")
+        .chr(chr)
+        .start(position)
+        .computeEndFromAlleles(alleles, position)
+        .alleles(alleles)
+        .make();
+  }
+
+  private void setAnnos(VariantContext annotatedVC, Map<String, Integer> fieldIndices) {
+    if (chr.equals(annotatedVC.getContig()) && position == annotatedVC.getStart()) {
+      String[] annFields =
+          annotatedVC.getAttributeAsString(SNPEFF_ANN_FIELD, "").split(SNPEFF_ANN_DELIM);
+      if (annFields.length < 4) {
+        App.LOG.warn("Skipping annotation of variant " + annotatedVC.toString());
+      } else {
+        //        snpeffGene = annFields[fieldIndices.get(SNPEFF_GENE)];
+        //        snpeffAnnotation = annFields[fieldIndices.get(SNPEFF_ANNO)];
+        //        snpeffImpact = annFields[fieldIndices.get(SNPEFF_IMPACT)];
+        snpeffGene = annFields[3];
+        snpeffAnnotation = annFields[1];
+        snpeffImpact = annFields[2];
+      }
+    } else {
+      throw new IllegalArgumentException(
+          "Annotated VC not reading in correct order of DeNovoResults");
+    }
+  }
+
+  public static void retrieveAnnos(List<DeNovoResult> deNovoResults) {
+    App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
+    List<String> cmd =
+        ImmutableList.<String>builder()
+            .add("java")
+            .add("-Xmx8G")
+            .add("-jar")
+            .add(SNP_EFF_JAR)
+            .add("eff")
+            .add(SNPEFF_GENOME)
+            .add("-")
+            .build();
+
+    try {
+      Process snpEffProc = new ProcessBuilder(cmd).redirectError(Redirect.INHERIT).start();
+      try (VariantContextWriter writer =
+          new VariantContextWriterBuilder()
+              .clearOptions()
+              .clearIndexCreator()
+              .setOutputVCFStream(new BufferedOutputStream(snpEffProc.getOutputStream()))
+              .build()) {
+        Thread readInThread =
+            new Thread(
+                () -> {
+                  try (VCFIterator vcfIter =
+                      new VCFIteratorBuilder()
+                          .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
+                    App.LOG.info(vcfIter.getHeader().toString());
+                    String annDescrip =
+                        vcfIter.getHeader().getInfoHeaderLine(SNPEFF_ANN_FIELD).getDescription();
+                    String[] annHeader =
+                        annDescrip
+                            .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
+                            .split(SNPEFF_ANN_DELIM);
+                    App.LOG.info(Arrays.toString(annHeader));
+                    Map<String, Integer> fieldIndices =
+                        IntStream.range(0, annHeader.length)
+                            .boxed()
+                            .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
+                    int annotated = 0;
+                    App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
+                    for (DeNovoResult deNovoResult : deNovoResults) {
+
+                      deNovoResult.setAnnos(vcfIter.next(), fieldIndices);
+                      if (annotated++ % 10000 == 0)
+                        App.LOG.log(
+                            Level.INFO,
+                            "Annotated "
+                                + annotated
+                                + " variants (of "
+                                + deNovoResults.size()
+                                + ")");
+                    }
+                  } catch (IOException e) {
+                    App.LOG.error(e);
+                  }
+                });
+        readInThread.start();
+        VCFHeader vcfHeader = new VCFHeader();
+        writer.writeHeader(vcfHeader);
+        App.LOG.log(Level.INFO, "Wrote VCF header to SnpEff, generating variants");
+        int generated = 0;
+        for (DeNovoResult deNovoResult : deNovoResults) {
+          writer.add(deNovoResult.generateVariantContext());
+          if (generated++ % 10000 == 0)
+            App.LOG.log(
+                Level.INFO,
+                "Generated " + generated + " variants (of " + deNovoResults.size() + ")");
+        }
+      }
+
+    } catch (IOException e) {
+      App.LOG.error(e);
+    }
   }
 }
