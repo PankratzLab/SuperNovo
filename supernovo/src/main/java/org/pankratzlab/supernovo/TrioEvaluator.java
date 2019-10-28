@@ -93,32 +93,35 @@ public class TrioEvaluator {
     };
   }
 
+  private ImmutableList<DeNovoResult> generateResults(File vcf) {
+    return perContigVCFReaders(vcf)
+        .parallel()
+        .flatMap(
+            s ->
+                s.filter(this::keepVariant)
+                    .map(this::generatePosition)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .map(this::evaluate)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get))
+        .collect(ImmutableList.toImmutableList());
+  }
+
   public void reportDeNovos(File vcf, File output) throws IOException {
     File serOutput = formSerializedOutput(output);
-    final ImmutableList<DeNovoResult> results;
+    ImmutableList<DeNovoResult> results;
     if (serOutput.exists()) {
       App.LOG.info("Serialized output already exists, loading...");
       try {
         results = deserializeResults(serOutput);
         App.LOG.info("Serialized output loaded");
-      } catch (ClassNotFoundException e) {
-        App.LOG.error("Error loading serialized results", e);
-        return;
+      } catch (Exception e) {
+        App.LOG.error("Error loading serialized results, regenerating", e);
+        results = generateResults(vcf);
       }
     } else {
-      results =
-          perContigVCFReaders(vcf)
-              .parallel()
-              .flatMap(
-                  s ->
-                      s.filter(this::keepVariant)
-                          .map(this::generatePosition)
-                          .filter(Optional::isPresent)
-                          .map(Optional::get)
-                          .map(this::evaluate)
-                          .filter(Optional::isPresent)
-                          .map(Optional::get))
-              .collect(ImmutableList.toImmutableList());
+      results = generateResults(vcf);
     }
     DeNovoResult.retrieveAnnos(results);
     serializeResults(results, serOutput);
