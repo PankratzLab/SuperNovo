@@ -21,7 +21,7 @@ import htsjdk.samtools.SAMRecord;
 public class Pileup implements Serializable {
 
   /** */
-  private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 2L;
 
   public static class Builder {
     private final GenomePosition position;
@@ -29,6 +29,7 @@ public class Pileup implements Serializable {
     private final ImmutableSetMultimap.Builder<PileAllele, Integer> basePilesBuilder;
     private final Map<PileAllele, Double> weightedDepth;
     private final ImmutableMultiset.Builder<PileAllele> clippedReadCountsBuilder;
+    private final ImmutableMultiset.Builder<PileAllele> lastPositionReadCountsBuilder;
     private final ImmutableMultiset.Builder<PileAllele> apparentMismapReadCountsBuilder;
     private final ImmutableMultiset.Builder<PileAllele> unmappedMateCountsBuilder;
 
@@ -38,6 +39,7 @@ public class Pileup implements Serializable {
       basePilesBuilder = ImmutableSetMultimap.builder();
       weightedDepth = Maps.newHashMap();
       clippedReadCountsBuilder = ImmutableMultiset.builder();
+      lastPositionReadCountsBuilder = ImmutableMultiset.builder();
       apparentMismapReadCountsBuilder = ImmutableMultiset.builder();
       unmappedMateCountsBuilder = ImmutableMultiset.builder();
     }
@@ -59,6 +61,10 @@ public class Pileup implements Serializable {
         } else if (calcPercentReadMatchesRef(samRecord) >= MIN_PERCENT_BASES_MATCH) {
           apparentMismapReadCountsBuilder.add(allele);
           countWeight = false;
+        }
+        if (samRecord.getAlignmentStart() == position.getPosition()
+            || samRecord.getAlignmentEnd() == position.getPosition()) {
+          lastPositionReadCountsBuilder.add(allele);
         }
         if (samRecord.getMateUnmappedFlag()) {
           unmappedMateCountsBuilder.add(allele);
@@ -99,6 +105,7 @@ public class Pileup implements Serializable {
   private final ImmutableSetMultimap<PileAllele, Integer> basePiles;
   private final ImmutableMap<PileAllele, Double> weightedBaseCounts;
   private final ImmutableMultiset<PileAllele> clippedReadCounts;
+  private final ImmutableMultiset<PileAllele> lastPositionReadCounts;
   private final ImmutableMultiset<PileAllele> apparentMismapReadCounts;
   private final ImmutableMultiset<PileAllele> unmappedMateCounts;
 
@@ -118,6 +125,7 @@ public class Pileup implements Serializable {
             .orderEntriesByValue(Comparator.reverseOrder())
             .build();
     clippedReadCounts = builder.clippedReadCountsBuilder.build();
+    lastPositionReadCounts = builder.lastPositionReadCountsBuilder.build();
     apparentMismapReadCounts = builder.apparentMismapReadCountsBuilder.build();
     unmappedMateCounts = builder.unmappedMateCountsBuilder.build();
     position = builder.position;
@@ -173,6 +181,11 @@ public class Pileup implements Serializable {
     return clippedReadCounts;
   }
 
+  /** @return the lastPositionReadCounts */
+  public ImmutableMultiset<PileAllele> getLastPositionReadCounts() {
+    return lastPositionReadCounts;
+  }
+
   /** @return the apparentMismapReadCounts */
   public ImmutableMultiset<PileAllele> getApparentMismapReadCounts() {
     return apparentMismapReadCounts;
@@ -215,6 +228,8 @@ public class Pileup implements Serializable {
         + weightedBaseCounts
         + ", clippedReadCounts="
         + clippedReadCounts
+        + ", lastPositionReadCounts="
+        + lastPositionReadCounts
         + ", apparentMismapReadCounts="
         + apparentMismapReadCounts
         + ", unmappedMateCounts="

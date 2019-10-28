@@ -39,7 +39,7 @@ public class DeNovoResult implements OutputFields, Serializable {
   public static class Sample implements OutputFields, Serializable {
 
     /** */
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
     public final String id;
     public final int rawDepth;
@@ -53,6 +53,8 @@ public class DeNovoResult implements OutputFields, Serializable {
     public final int g_rawDepth;
     public final int a1ClippedReads;
     public final int a2ClippedReads;
+    public final int a1LastReadPosition;
+    public final int a2LastReadPosition;
     public final int a1ApparentMismapReads;
     public final int a2ApparentMismapReads;
     public final int a1UnmappedMateReads;
@@ -98,6 +100,8 @@ public class DeNovoResult implements OutputFields, Serializable {
       g_rawDepth = depth.allelicRawDepth(SNPAllele.G);
       a1ClippedReads = a1.transform(pileup.getClippedReadCounts()::count).or(0);
       a2ClippedReads = a2.transform(pileup.getClippedReadCounts()::count).or(0);
+      a1LastReadPosition = a1.transform(pileup.getLastPositionReadCounts()::count).or(0);
+      a2LastReadPosition = a2.transform(pileup.getLastPositionReadCounts()::count).or(0);
       a1ApparentMismapReads = a1.transform(pileup.getApparentMismapReadCounts()::count).or(0);
       a2ApparentMismapReads = a2.transform(pileup.getApparentMismapReadCounts()::count).or(0);
       a1UnmappedMateReads = a1.transform(pileup.getUnmappedMateCounts()::count).or(0);
