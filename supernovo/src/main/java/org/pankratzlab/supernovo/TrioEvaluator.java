@@ -94,18 +94,21 @@ public class TrioEvaluator {
   }
 
   private ImmutableList<DeNovoResult> generateResults(File vcf) {
-    return perContigVCFReaders(vcf)
-        .parallel()
-        .flatMap(
-            s ->
-                s.filter(this::keepVariant)
-                    .map(this::generatePosition)
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .map(this::evaluate)
-                    .filter(Optional::isPresent)
-                    .map(Optional::get))
-        .collect(ImmutableList.toImmutableList());
+    ImmutableList<DeNovoResult> results =
+        perContigVCFReaders(vcf)
+            .parallel()
+            .flatMap(
+                s ->
+                    s.filter(this::keepVariant)
+                        .map(this::generatePosition)
+                        .filter(Optional::isPresent)
+                        .map(Optional::get)
+                        .map(this::evaluate)
+                        .filter(Optional::isPresent)
+                        .map(Optional::get))
+            .collect(ImmutableList.toImmutableList());
+    DeNovoResult.retrieveAnnos(results);
+    return results;
   }
 
   public void reportDeNovos(File vcf, File output) throws IOException {
@@ -123,7 +126,6 @@ public class TrioEvaluator {
     } else {
       results = generateResults(vcf);
     }
-    DeNovoResult.retrieveAnnos(results);
     serializeResults(results, serOutput);
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
       writer.println(OutputFields.generateHeader(DeNovoResult.class));
