@@ -184,7 +184,7 @@ public class TrioEvaluator {
       return Optional.of(ReferencePosition.fromVariantContext(vc, ref, alt));
     } catch (IllegalArgumentException iae) {
       LogManager.getLogger(App.class)
-          .error("Failed to generate ReferencePosition for variant", iae);
+          .error("Failed to generate ReferencePosition for variant " + vc, iae);
       return Optional.absent();
     }
   }
@@ -245,6 +245,11 @@ public class TrioEvaluator {
   }
 
   public static boolean looksDenovo(Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
+    return dnAllele(childPileup, p1Pileup, p2Pileup).isPresent();
+  }
+
+  public static Optional<PileAllele> dnAllele(
+      Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
     List<Pileup> parentPileups = ImmutableList.of(p1Pileup, p2Pileup);
     Set<PileAllele> parentalAlleles =
         parentPileups
@@ -252,6 +257,20 @@ public class TrioEvaluator {
             .map(TrioEvaluator::possibleAlleles)
             .flatMap(Set::stream)
             .collect(ImmutableSet.toImmutableSet());
-    return !Sets.difference(childPileup.getDepth().getBiAlleles(), parentalAlleles).isEmpty();
+    try {
+      return Optional.fromJavaUtil(
+          Sets.difference(childPileup.getDepth().getBiAlleles(), parentalAlleles)
+              .stream()
+              .collect(MoreCollectors.toOptional()));
+    } catch (IllegalArgumentException iae) {
+      App.LOG.warn(
+          "Multiple alleles at site appear De Novo for child: "
+              + childPileup
+              + ", with parents: "
+              + p1Pileup
+              + " and "
+              + p2Pileup);
+      return Optional.absent();
+    }
   }
 }

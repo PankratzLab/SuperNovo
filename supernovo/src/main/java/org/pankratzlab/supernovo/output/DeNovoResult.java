@@ -151,10 +151,18 @@ public class DeNovoResult implements OutputFields, Serializable {
 
   public final String chr;
   public final int position;
+  public String snpeffGene;
+
+  public String snpeffAnnotation;
+
+  public String snpeffImpact;
+
   public final PileAllele refAllele;
   public final Optional<PileAllele> altAllele;
   public final Optional<PileAllele> allele1;
   public final Optional<PileAllele> allele2;
+  public final Optional<PileAllele> dnAllele;
+  public final Optional<Boolean> dnIsRef;
   public boolean biallelicHeterozygote;
   public boolean deNovo;
   public boolean superNovo;
@@ -169,10 +177,6 @@ public class DeNovoResult implements OutputFields, Serializable {
   public final Sample child;
   public final Sample p1;
   public final Sample p2;
-  public String snpeffGene;
-  public String snpeffAnnotation;
-  public String snpeffImpact;
-
   private final ReferencePosition pos;
   private final HaplotypeEvaluator.Result hapResults;
   private final ImmutableList<Sample> parents;
@@ -196,6 +200,8 @@ public class DeNovoResult implements OutputFields, Serializable {
     altAllele = pos.getAltAllele();
     allele1 = child.getDepth().getA1();
     allele2 = child.getDepth().getA2();
+    dnAllele = TrioEvaluator.dnAllele(child.getPileup(), p1.getPileup(), p2.getPileup());
+    dnIsRef = dnAllele.transform(refAllele::equals);
 
     if (hapResults.getConcordances().isEmpty()) meanHaplotypeConcordance = 1.0;
     else
