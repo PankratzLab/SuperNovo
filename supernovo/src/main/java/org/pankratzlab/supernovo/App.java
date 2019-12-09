@@ -83,7 +83,7 @@ public class App implements Runnable {
   public void run() {
     try {
       new TrioEvaluator(childBam, childID, p1Bam, p1ID, p2Bam, p2ID).reportDeNovos(vcf, output);
-    } catch (IOException e) {
+    } catch (IOException | ClassNotFoundException e) {
       LOG.error("An IO error was encountered", e);
     }
   }
