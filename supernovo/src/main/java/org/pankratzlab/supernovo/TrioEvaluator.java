@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -29,9 +30,12 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultiset;
 import com.google.common.collect.MoreCollectors;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
+import com.google.common.collect.TreeBasedTable;
 import htsjdk.samtools.SamReader;
 import htsjdk.samtools.util.CloseableIterator;
 import htsjdk.variant.variantcontext.Allele;
@@ -111,7 +115,7 @@ public class TrioEvaluator {
     return results;
   }
 
-  public void reportDeNovos(File vcf, File output) throws IOException {
+  public void reportDeNovos(File vcf, File output) throws IOException, ClassNotFoundException {
     File serOutput = formSerializedOutput(output);
     ImmutableList<DeNovoResult> results;
     if (serOutput.exists()) {
@@ -127,6 +131,10 @@ public class TrioEvaluator {
       results = generateResults(vcf);
     }
     serializeResults(results, serOutput);
+    summarizeResults(results, formSummarizedOutput(output));
+    summarizeAllResults(
+        new File("/home/spectorl/shared/Project_Spector_Project_014/gvcf_Oct2019/supernovo/"),
+        formSummarizedAllOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
       writer.println(OutputFields.generateHeader(DeNovoResult.class));
       results.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
@@ -148,12 +156,82 @@ public class TrioEvaluator {
     return new File(path.substring(0, path.lastIndexOf('.')) + ".DeNovoResultList.ser.gz");
   }
 
+  private static File formSummarizedOutput(File textOutput) {
+    String path = textOutput.getPath();
+    return new File(path.substring(0, path.lastIndexOf('.')) + ".summary.txt");
+  }
+
+  private static File formSummarizedAllOutput(File textOutput) {
+    String path = textOutput.getPath();
+    return new File(path.substring(0, path.lastIndexOf('.')) + ".summary.ALL.txt");
+  }
+
   private void serializeResults(ImmutableList<DeNovoResult> results, File output) {
     try (ObjectOutputStream oos =
         new ObjectOutputStream(new GZIPOutputStream(new FileOutputStream(output)))) {
       oos.writeObject(results);
     } catch (IOException e) {
       e.printStackTrace();
+    }
+  }
+
+  private void summarizeAllResults(File dir, File output)
+      throws ClassNotFoundException, IOException {
+    Table<String, String, Integer> entrySampleCounts = TreeBasedTable.create();
+    for (File file : dir.listFiles((fileDir, name) -> name.endsWith("DeNovoResultList.ser.gz"))) {
+      Multiset<String> counts = LinkedHashMultiset.create();
+      for (DeNovoResult dnr : deserializeResults(file)) {
+        if (dnr.superNovo) {
+          counts.add("supernovo");
+          if (dnr.snpeffGene != null) counts.add(dnr.snpeffGene + "_AnyImpact");
+          if (dnr.snpeffImpact != null) counts.add(dnr.snpeffImpact);
+          if ("MODERATE".equals(dnr.snpeffImpact) || "HIGH".equals(dnr.snpeffImpact)) {
+            counts.add("supernovo_damaging");
+            counts.add(dnr.snpeffGene);
+            if (!dnr.dnIsRef.or(Boolean.FALSE)) counts.add("supernovo_damaging_nonref");
+          }
+        }
+      }
+      counts.forEachEntry((entry, count) -> entrySampleCounts.put(file.getName(), entry, count));
+    }
+    try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
+      writer.print("sample\t");
+      writer.println(entrySampleCounts.columnKeySet().stream().collect(Collectors.joining("\t")));
+      Set<String> cols = entrySampleCounts.columnKeySet();
+      for (String sample : entrySampleCounts.rowKeySet()) {
+        writer.print(sample + "\t");
+        writer.println(
+            cols.stream()
+                .map(e -> entrySampleCounts.get(sample, e))
+                .map(Optional::fromNullable)
+                .map(Optional::get)
+                .map(i -> i.toString())
+                .collect(Collectors.joining("\t")));
+      }
+    }
+  }
+
+  private void summarizeResults(ImmutableList<DeNovoResult> results, File output)
+      throws IOException {
+    Multiset<String> counts = LinkedHashMultiset.create();
+    for (DeNovoResult dnr : results) {
+      if (dnr.superNovo) {
+        counts.add("supernovo");
+        counts.add(dnr.snpeffGene + "_AnyImpact");
+        counts.add(dnr.snpeffImpact);
+        if ("MODERATE".equals(dnr.snpeffImpact) || "HIGH".equals(dnr.snpeffImpact)) {
+          counts.add("supernovo_damaging");
+          counts.add(dnr.snpeffGene);
+          if (!dnr.dnIsRef.or(Boolean.FALSE)) counts.add("supernovo_damaging_nonref");
+        }
+      }
+    }
+    try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
+      counts
+          .entrySet()
+          .stream()
+          .map(e -> e.getElement() + "\t" + e.getCount())
+          .forEach(writer::println);
     }
   }
 
