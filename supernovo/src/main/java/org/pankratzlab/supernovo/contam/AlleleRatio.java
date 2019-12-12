@@ -14,9 +14,14 @@ public class AlleleRatio {
 
   private final SortedSet<Double> bins;
   private final Multiset<Double> altFracBinCounts;
+  private final int minAltDepth;
+  private final int minTotalDepth;
 
-  public AlleleRatio(final ImmutableSortedSet<Double> bins) {
+  public AlleleRatio(
+      final ImmutableSortedSet<Double> bins, final int minAltDepth, final int minDepth) {
     this.bins = bins;
+    this.minAltDepth = minAltDepth;
+    this.minTotalDepth = minDepth;
     altFracBinCounts = ConcurrentHashMultiset.create();
   }
 
@@ -25,13 +30,16 @@ public class AlleleRatio {
       int[] ad = geno.getAD();
       int refCount = ad[0];
       int altCount = IntStream.range(1, ad.length).map(i -> ad[i]).max().orElse(0);
-      double altRatio = altCount / (double) (refCount + altCount);
-      altFracBinCounts.add(
-          bins.tailSet(altRatio)
-              .stream()
-              .limit(1)
-              .collect(MoreCollectors.toOptional())
-              .orElseGet(bins::last));
+      int biallelicDepth = refCount + altCount;
+      if (altCount >= minAltDepth && biallelicDepth >= minTotalDepth) {
+        double altRatio = altCount / (double) biallelicDepth;
+        altFracBinCounts.add(
+            bins.tailSet(altRatio)
+                .stream()
+                .limit(1)
+                .collect(MoreCollectors.toOptional())
+                .orElseGet(bins::last));
+      }
     }
   }
 
