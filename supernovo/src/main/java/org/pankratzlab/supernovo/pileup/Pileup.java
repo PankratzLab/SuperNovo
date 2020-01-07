@@ -45,35 +45,37 @@ public class Pileup implements Serializable {
     }
 
     public Builder addRecord(SAMRecord samRecord) {
-      int readPos = samRecord.getReadPositionAtReferencePosition(position.getPosition()) - 1;
-      if (readPos != -1) {
-        PileAllele allele =
-            queriedAlleles
-                .stream()
-                .filter(a -> a.supported(samRecord, readPos))
-                .findFirst()
-                .orElseGet(() -> getAppropriateAllele(samRecord, readPos));
-        basePilesBuilder.put(allele, samRecord.hashCode());
-        boolean countWeight = true;
-        if (samRecord.getCigar().isClipped()) {
-          clippedReadCountsBuilder.add(allele);
-          countWeight = false;
-        } else if (calcPercentReadMatchesRef(samRecord) >= MIN_PERCENT_BASES_MATCH) {
-          apparentMismapReadCountsBuilder.add(allele);
-          countWeight = false;
-        }
-        if (samRecord.getAlignmentStart() == position.getPosition()
-            || samRecord.getAlignmentEnd() == position.getPosition()) {
-          lastPositionReadCountsBuilder.add(allele);
-        }
-        if (samRecord.getMateUnmappedFlag()) {
-          unmappedMateCountsBuilder.add(allele);
-          countWeight = false;
-        }
-        if (countWeight) {
-          weightedDepth.put(
-              allele,
-              weightedDepth.getOrDefault(allele, 0.0) + allele.weightedDepth(samRecord, readPos));
+      if (!samRecord.getDuplicateReadFlag()) {
+        int readPos = samRecord.getReadPositionAtReferencePosition(position.getPosition()) - 1;
+        if (readPos != -1) {
+          PileAllele allele =
+              queriedAlleles
+                  .stream()
+                  .filter(a -> a.supported(samRecord, readPos))
+                  .findFirst()
+                  .orElseGet(() -> getAppropriateAllele(samRecord, readPos));
+          basePilesBuilder.put(allele, samRecord.hashCode());
+          boolean countWeight = true;
+          if (samRecord.getCigar().isClipped()) {
+            clippedReadCountsBuilder.add(allele);
+            countWeight = false;
+          } else if (calcPercentReadMatchesRef(samRecord) >= MIN_PERCENT_BASES_MATCH) {
+            apparentMismapReadCountsBuilder.add(allele);
+            countWeight = false;
+          }
+          if (samRecord.getAlignmentStart() == position.getPosition()
+              || samRecord.getAlignmentEnd() == position.getPosition()) {
+            lastPositionReadCountsBuilder.add(allele);
+          }
+          if (samRecord.getMateUnmappedFlag()) {
+            unmappedMateCountsBuilder.add(allele);
+            countWeight = false;
+          }
+          if (countWeight) {
+            weightedDepth.put(
+                allele,
+                weightedDepth.getOrDefault(allele, 0.0) + allele.weightedDepth(samRecord, readPos));
+          }
         }
       }
       return this;
