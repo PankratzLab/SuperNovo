@@ -111,7 +111,7 @@ public class HaplotypeEvaluator {
       if (searchPos == pos.getPosition()) continue;
       GenomePosition searchPosition = new GenomePosition(pos.getContig(), searchPos);
       Pileup searchPileup = childPiles.apply(searchPosition);
-      if (TrioEvaluator.looksVariant(searchPileup.getDepth())) {
+      if (searchPileup.getDepth().getBiAlleles().size() == 2) {
         otherVariants++;
         if (TrioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
           otherTriallelics++;
