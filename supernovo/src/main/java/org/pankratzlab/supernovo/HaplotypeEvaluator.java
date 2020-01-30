@@ -72,7 +72,6 @@ public class HaplotypeEvaluator {
   }
 
   private static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
-  private static final double MIN_HAPLOTYPE_CONCORDANCE = 0.75;
 
   private final Pileup childPile;
   private final GenomePosition pos;
