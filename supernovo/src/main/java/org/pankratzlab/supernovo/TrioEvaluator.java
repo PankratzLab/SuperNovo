@@ -140,6 +140,7 @@ public class TrioEvaluator {
       try {
         results = deserializeResults(serOutput);
         App.LOG.info("Serialized output loaded");
+        DeNovoResult.retrieveAnnos(results);
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
         results = generateResults(vcf);
