@@ -156,6 +156,8 @@ public class DeNovoResult implements OutputFields, Serializable {
   public String snpeffAnnotation;
 
   public String snpeffImpact;
+  public String snpeffHGVSc;
+  public String snpeffHGVSp;
 
   public final PileAllele refAllele;
   public final Optional<PileAllele> altAllele;
@@ -274,6 +276,9 @@ public class DeNovoResult implements OutputFields, Serializable {
         snpeffGene = annFields[3];
         snpeffAnnotation = annFields[1];
         snpeffImpact = annFields[2];
+
+        snpeffHGVSc = annFields.length > 8 ? annFields[8] : ".";
+        snpeffHGVSp = annFields.length > 9 ? annFields[9] : ".";
       }
     } else {
       throw new IllegalArgumentException(
