@@ -2,6 +2,7 @@ package org.pankratzlab.supernovo.output;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
@@ -22,7 +23,10 @@ import org.pankratzlab.supernovo.pileup.Pileup;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import htsjdk.samtools.SAMSequenceDictionary;
 import htsjdk.variant.variantcontext.Allele;
+import htsjdk.variant.variantcontext.GenotypeBuilder;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.variantcontext.VariantContextBuilder;
 import htsjdk.variant.variantcontext.writer.VariantContextWriter;
@@ -30,6 +34,7 @@ import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder;
 import htsjdk.variant.vcf.VCFHeader;
 import htsjdk.variant.vcf.VCFIterator;
 import htsjdk.variant.vcf.VCFIteratorBuilder;
+import htsjdk.variant.vcf.VCFStandardHeaderLines;
 
 public class DeNovoResult implements OutputFields, Serializable {
 
@@ -347,16 +352,25 @@ public class DeNovoResult implements OutputFields, Serializable {
   }
 
   public VariantContext generateVariantContext() {
-    ImmutableList.Builder<Allele> allelesBuilder = ImmutableList.builder();
-    allelesBuilder.add(Allele.create(refAllele.toString(), true));
-    allelesBuilder.addAll(altAllele.transform(a -> Allele.create(a.toString(), false)).asSet());
+    ImmutableList.Builder<Allele> allelesBuilder = ImmutableList.builderWithExpectedSize(2);
+    Allele ref = Allele.create(refAllele.toString(), true);
+    allelesBuilder.add(ref);
+    altAllele
+        .transform(a -> Allele.create(a.toString(), false))
+        .toJavaUtil()
+        .ifPresent(allelesBuilder::add);
     List<Allele> alleles = allelesBuilder.build();
+    List<Allele> homRefAlleles = ImmutableList.of(ref, ref);
     return new VariantContextBuilder()
         .source("SuperNovo")
         .chr(chr)
         .start(position)
         .computeEndFromAlleles(alleles, position)
         .alleles(alleles)
+        .genotypes(
+            new GenotypeBuilder(child.getId(), alleles).make(),
+            new GenotypeBuilder(p1.getId(), homRefAlleles).make(),
+            new GenotypeBuilder(p2.getId(), homRefAlleles).make())
         .make();
   }
 
@@ -383,7 +397,9 @@ public class DeNovoResult implements OutputFields, Serializable {
     }
   }
 
-  public static void retrieveAnnos(List<DeNovoResult> deNovoResults) {
+  public static void retrieveAnnos(
+      List<DeNovoResult> deNovoResults, File vcfOutput, SAMSequenceDictionary dictionary) {
+    File intermediateVCFOutput = new File(vcfOutput.getParentFile(), "TEMP_" + vcfOutput.getName());
     App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
     List<String> cmd =
         ImmutableList.<String>builder()
@@ -396,9 +412,10 @@ public class DeNovoResult implements OutputFields, Serializable {
             .add("-")
             .build();
 
-    try {
+    try (VariantContextWriter snpEffOutWriter =
+        new VariantContextWriterBuilder().setOutputFile(intermediateVCFOutput).build()) {
       Process snpEffProc = new ProcessBuilder(cmd).redirectError(Redirect.INHERIT).start();
-      try (VariantContextWriter writer =
+      try (VariantContextWriter snpEffPipeWriter =
           new VariantContextWriterBuilder()
               .clearOptions()
               .clearIndexCreator()
@@ -424,9 +441,11 @@ public class DeNovoResult implements OutputFields, Serializable {
                             .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
                     int annotated = 0;
                     App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
+                    snpEffOutWriter.setHeader(vcfIter.getHeader());
                     for (DeNovoResult deNovoResult : deNovoResults) {
-
-                      deNovoResult.setAnnos(vcfIter.next(), fieldIndices);
+                      VariantContext annotatedVC = vcfIter.next();
+                      snpEffOutWriter.add(annotatedVC);
+                      deNovoResult.setAnnos(annotatedVC, fieldIndices);
                       if (annotated++ % 10000 == 0)
                         App.LOG.log(
                             Level.INFO,
@@ -441,17 +460,29 @@ public class DeNovoResult implements OutputFields, Serializable {
                   }
                 });
         readInThread.start();
-        VCFHeader vcfHeader = new VCFHeader();
-        writer.writeHeader(vcfHeader);
+        ImmutableList<String> samples =
+            deNovoResults
+                .stream()
+                .findFirst()
+                .map(dnr -> ImmutableList.of(dnr.child.getId(), dnr.p1.getId(), dnr.p2.getId()))
+                .orElseGet(ImmutableList::of);
+        VCFHeader vcfHeader =
+            new VCFHeader(ImmutableSet.of(VCFStandardHeaderLines.getFormatLine("GT")), samples);
+        vcfHeader.setSequenceDictionary(dictionary);
+        snpEffPipeWriter.writeHeader(vcfHeader);
         App.LOG.log(Level.INFO, "Wrote VCF header to SnpEff, generating variants");
         int generated = 0;
         for (DeNovoResult deNovoResult : deNovoResults) {
-          writer.add(deNovoResult.generateVariantContext());
+          snpEffPipeWriter.add(deNovoResult.generateVariantContext());
           if (generated++ % 10000 == 0)
             App.LOG.log(
                 Level.INFO,
                 "Generated " + generated + " variants (of " + deNovoResults.size() + ")");
         }
+        readInThread.join();
+      } catch (InterruptedException e) {
+        App.LOG.error(e);
+        Thread.currentThread().interrupt();
       }
 
     } catch (IOException e) {

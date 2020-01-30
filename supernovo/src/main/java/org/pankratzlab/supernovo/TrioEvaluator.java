@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
@@ -42,10 +43,12 @@ import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFContigHeaderLine;
 import htsjdk.variant.vcf.VCFFileReader;
+import htsjdk.variant.vcf.VCFHeader;
 
 public class TrioEvaluator {
 
   protected static final String SER_EXTENSION = ".DeNovoResultList.ser.gz";
+  protected static final String VCF_EXTENSION = ".DeNovoResults.vcf.gz";
 
   private static final int READ_LENGTH = 150;
   private static final int MIN_DEPTH = 10;
@@ -65,6 +68,16 @@ public class TrioEvaluator {
   private final LoadingCache<GenomePosition, Pileup> p2Pileups;
 
   private final Multiset<String> contigLogCount = ConcurrentHashMultiset.create();
+  private final Function<File, VCFHeader> vcfHeaderCache =
+      CacheBuilder.newBuilder()
+          .softValues()
+          .build(
+              CacheLoader.from(
+                  vcf -> {
+                    try (VCFFileReader vcfHeaderReader = new VCFFileReader(vcf)) {
+                      return vcfHeaderReader.getFileHeader();
+                    }
+                  }));
 
   /**
    * @param childBam {@link SamReader} of child to evluate for de novo variants
@@ -116,7 +129,6 @@ public class TrioEvaluator {
                         .map(Optional::get))
             .distinct()
             .collect(ImmutableList.toImmutableList());
-    DeNovoResult.retrieveAnnos(results);
     return results;
   }
 
@@ -133,6 +145,7 @@ public class TrioEvaluator {
   }
 
   public void reportDeNovos(File vcf, File output) throws IOException, ClassNotFoundException {
+    File vcfOutput = formVCFOutput(output);
     File serOutput = formSerializedOutput(output);
     ImmutableList<DeNovoResult> results;
     if (serOutput.exists()) {
@@ -140,7 +153,6 @@ public class TrioEvaluator {
       try {
         results = deserializeResults(serOutput);
         App.LOG.info("Serialized output loaded");
-        DeNovoResult.retrieveAnnos(results);
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
         results = generateResults(vcf);
@@ -148,6 +160,8 @@ public class TrioEvaluator {
     } else {
       results = generateResults(vcf);
     }
+    DeNovoResult.retrieveAnnos(
+        results, vcfOutput, vcfHeaderCache.apply(vcf).getSequenceDictionary());
     serializeResults(results, serOutput);
     summarizeResults(results, formSummarizedOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
@@ -158,8 +172,8 @@ public class TrioEvaluator {
 
   private Stream<Stream<VariantContext>> binnedVCFReaders(File vcf) {
     final int binSize = 100000;
-    return new VCFFileReader(vcf)
-        .getFileHeader()
+    return vcfHeaderCache
+        .apply(vcf)
         .getContigLines()
         .stream()
         .map(VCFContigHeaderLine::getSAMSequenceRecord)
@@ -176,6 +190,11 @@ public class TrioEvaluator {
   private static File formSerializedOutput(File textOutput) {
     String path = textOutput.getPath();
     return new File(path.substring(0, path.lastIndexOf('.')) + SER_EXTENSION);
+  }
+
+  private static File formVCFOutput(File textOutput) {
+    String path = textOutput.getPath();
+    return new File(path.substring(0, path.lastIndexOf('.')) + VCF_EXTENSION);
   }
 
   private static File formSummarizedOutput(File textOutput) {
