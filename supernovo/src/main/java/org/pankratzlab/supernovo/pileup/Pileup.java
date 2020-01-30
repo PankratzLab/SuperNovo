@@ -173,7 +173,7 @@ public class Pileup implements Serializable {
     return weightedBaseCounts;
   }
 
-  /** @return Multimap from {@link PileAllele} to index for the piled read */
+  /** @return Multimap from {@link PileAllele} to hash code for the piled read */
   public ImmutableSetMultimap<PileAllele, Integer> getRecordsByBase() {
     return basePiles;
   }
