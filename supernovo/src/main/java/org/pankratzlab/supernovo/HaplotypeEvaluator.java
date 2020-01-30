@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
+import org.pankratzlab.supernovo.output.DeNovoResult;
 import org.pankratzlab.supernovo.pileup.Depth.Allele;
 import org.pankratzlab.supernovo.pileup.Pileup;
 import com.google.common.collect.ImmutableList;
@@ -111,16 +112,19 @@ public class HaplotypeEvaluator {
       GenomePosition searchPosition = new GenomePosition(pos.getContig(), searchPos);
       Pileup searchPileup = childPiles.apply(searchPosition);
       if (searchPileup.getDepth().getBiAlleles().size() == 2) {
-        otherVariants++;
-        if (TrioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
-          otherTriallelics++;
-        } else {
-          otherBiallelics++;
-          concordances.add(concordance(childPile, searchPileup));
-          if (TrioEvaluator.looksDenovo(
-              searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))) {
-            otherDenovoPositions.add(searchPos);
+        if (TrioEvaluator.looksVariant(searchPileup.getDepth())) {
+          otherVariants++;
+          if (TrioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
+            otherTriallelics++;
+          } else {
+            otherBiallelics++;
+            concordances.add(concordance(childPile, searchPileup));
           }
+        }
+        if (TrioEvaluator.looksDenovo(
+                searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))
+            && concordance(childPile, searchPileup) >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE) {
+          otherDenovoPositions.add(searchPos);
         }
       }
     }
