@@ -114,6 +114,7 @@ public class TrioEvaluator {
                         .map(this::evaluate)
                         .filter(Optional::isPresent)
                         .map(Optional::get))
+            .distinct()
             .collect(ImmutableList.toImmutableList());
     DeNovoResult.retrieveAnnos(results);
     return results;
