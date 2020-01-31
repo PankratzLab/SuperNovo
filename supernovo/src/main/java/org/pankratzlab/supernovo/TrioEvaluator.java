@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -101,7 +102,7 @@ public class TrioEvaluator {
 
   private ImmutableList<DeNovoResult> generateResults(File vcf) {
     ImmutableList<DeNovoResult> results =
-        perContigVCFReaders(vcf)
+        binnedVCFReaders(vcf)
             .parallel()
             .flatMap(
                 s ->
@@ -156,13 +157,20 @@ public class TrioEvaluator {
     }
   }
 
-  private Stream<Stream<VariantContext>> perContigVCFReaders(File vcf) {
+  private Stream<Stream<VariantContext>> binnedVCFReaders(File vcf) {
+    final int binSize = 100000;
     return new VCFFileReader(vcf)
         .getFileHeader()
         .getContigLines()
         .stream()
-        .map(VCFContigHeaderLine::getID)
-        .map(v -> new VCFFileReader(vcf).query(v, 1, Integer.MAX_VALUE))
+        .map(VCFContigHeaderLine::getSAMSequenceRecord)
+        .flatMap(
+            r ->
+                IntStream.rangeClosed(0, r.getSequenceLength() / binSize)
+                    .mapToObj(
+                        i ->
+                            new VCFFileReader(vcf)
+                                .query(r.getSequenceName(), i * binSize + 1, (i + 1) * binSize)))
         .map(CloseableIterator::stream);
   }
 
