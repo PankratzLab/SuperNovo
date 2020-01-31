@@ -29,4 +29,10 @@ public interface PileAllele extends Serializable {
   /** @return String representation of the allele */
   @Override
   String toString();
+
+  @Override
+  boolean equals(Object obj);
+
+  @Override
+  int hashCode();
 }

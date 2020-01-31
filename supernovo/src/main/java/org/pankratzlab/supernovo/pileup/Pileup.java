@@ -242,4 +242,55 @@ public class Pileup implements Serializable {
         + depth
         + "]";
   }
+
+  @Override
+  public int hashCode() {
+    final int prime = 31;
+    int result = 1;
+    result =
+        prime * result
+            + ((apparentMismapReadCounts == null) ? 0 : apparentMismapReadCounts.hashCode());
+    result = prime * result + ((basePiles == null) ? 0 : basePiles.hashCode());
+    result = prime * result + ((clippedReadCounts == null) ? 0 : clippedReadCounts.hashCode());
+    result = prime * result + ((depth == null) ? 0 : depth.hashCode());
+    result =
+        prime * result + ((lastPositionReadCounts == null) ? 0 : lastPositionReadCounts.hashCode());
+    result = prime * result + ((position == null) ? 0 : position.hashCode());
+    result = prime * result + ((unmappedMateCounts == null) ? 0 : unmappedMateCounts.hashCode());
+    result = prime * result + ((weightedBaseCounts == null) ? 0 : weightedBaseCounts.hashCode());
+    return result;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) return true;
+    if (obj == null) return false;
+    if (!(obj instanceof Pileup)) return false;
+    Pileup other = (Pileup) obj;
+    if (apparentMismapReadCounts == null) {
+      if (other.apparentMismapReadCounts != null) return false;
+    } else if (!apparentMismapReadCounts.equals(other.apparentMismapReadCounts)) return false;
+    if (basePiles == null) {
+      if (other.basePiles != null) return false;
+    } else if (!basePiles.equals(other.basePiles)) return false;
+    if (clippedReadCounts == null) {
+      if (other.clippedReadCounts != null) return false;
+    } else if (!clippedReadCounts.equals(other.clippedReadCounts)) return false;
+    if (depth == null) {
+      if (other.depth != null) return false;
+    } else if (!depth.equals(other.depth)) return false;
+    if (lastPositionReadCounts == null) {
+      if (other.lastPositionReadCounts != null) return false;
+    } else if (!lastPositionReadCounts.equals(other.lastPositionReadCounts)) return false;
+    if (position == null) {
+      if (other.position != null) return false;
+    } else if (!position.equals(other.position)) return false;
+    if (unmappedMateCounts == null) {
+      if (other.unmappedMateCounts != null) return false;
+    } else if (!unmappedMateCounts.equals(other.unmappedMateCounts)) return false;
+    if (weightedBaseCounts == null) {
+      if (other.weightedBaseCounts != null) return false;
+    } else if (!weightedBaseCounts.equals(other.weightedBaseCounts)) return false;
+    return true;
+  }
 }

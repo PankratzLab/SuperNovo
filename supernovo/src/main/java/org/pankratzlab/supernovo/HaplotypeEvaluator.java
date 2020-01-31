@@ -70,6 +70,36 @@ public class HaplotypeEvaluator {
     public List<Double> getConcordances() {
       return concordances;
     }
+
+    @Override
+    public int hashCode() {
+      final int prime = 31;
+      int result = 1;
+      result = prime * result + adjacentDeNovos;
+      result = prime * result + ((concordances == null) ? 0 : concordances.hashCode());
+      result = prime * result + otherBiallelics;
+      result = prime * result + otherDeNovos;
+      result = prime * result + otherTriallelics;
+      result = prime * result + otherVariants;
+      return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) return true;
+      if (obj == null) return false;
+      if (!(obj instanceof Result)) return false;
+      Result other = (Result) obj;
+      if (adjacentDeNovos != other.adjacentDeNovos) return false;
+      if (concordances == null) {
+        if (other.concordances != null) return false;
+      } else if (!concordances.equals(other.concordances)) return false;
+      if (otherBiallelics != other.otherBiallelics) return false;
+      if (otherDeNovos != other.otherDeNovos) return false;
+      if (otherTriallelics != other.otherTriallelics) return false;
+      if (otherVariants != other.otherVariants) return false;
+      return true;
+    }
   }
 
   private static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
