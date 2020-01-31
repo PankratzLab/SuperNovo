@@ -28,7 +28,7 @@ import com.google.common.base.Predicates;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.HashMultiset;
+import com.google.common.collect.ConcurrentHashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultiset;
@@ -64,7 +64,7 @@ public class TrioEvaluator {
   private final LoadingCache<GenomePosition, Pileup> p1Pileups;
   private final LoadingCache<GenomePosition, Pileup> p2Pileups;
 
-  private final Multiset<String> contigLogCount = HashMultiset.create();
+  private final Multiset<String> contigLogCount = ConcurrentHashMultiset.create();
 
   /**
    * @param childBam {@link SamReader} of child to evluate for de novo variants
@@ -126,9 +126,7 @@ public class TrioEvaluator {
           "Processed "
               + contigLogCount.count(vc.getContig())
               + " positions on  contig "
-              + vc.getContig()
-              + ", at position "
-              + vc.getStart());
+              + vc.getContig());
     }
     contigLogCount.add(vc.getContig());
     return vc;
