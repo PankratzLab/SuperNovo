@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
@@ -38,6 +39,8 @@ import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.SamReader;
 import htsjdk.samtools.util.CloseableIterator;
+import htsjdk.samtools.util.Interval;
+import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
@@ -114,28 +117,40 @@ public class TrioEvaluator {
   }
 
   private ImmutableList<DeNovoResult> generateResults(File vcf) {
-    ImmutableList<DeNovoResult> results =
-        binnedVCFReaders(vcf)
+    LoadingCache<Thread, VCFFileReader> perThreadReaders =
+        CacheBuilder.newBuilder().build(CacheLoader.from(t -> new VCFFileReader(vcf)));
+    Supplier<VCFFileReader> getVCFReader =
+        () -> perThreadReaders.getUnchecked(Thread.currentThread());
+    long time = System.currentTimeMillis();
+    App.LOG.info("Parsing variants from gvcf");
+    ImmutableSet<VariantContext> variantsToEval =
+        genomeBins(vcf)
             .parallel()
-            .flatMap(
-                s ->
-                    s.map(this::maybeLogProgress)
-                        .filter(this::keepVariant)
-                        .map(this::generatePosition)
-                        .filter(Optional::isPresent)
-                        .map(Optional::get)
-                        .map(this::evaluate)
-                        .filter(Optional::isPresent)
-                        .map(Optional::get))
-            .distinct()
+            .map(loc -> getVCFReader.get().query(loc).stream())
+            .flatMap(s -> s.map(this::maybeLogParseProgress).filter(this::keepVariant))
+            .collect(ImmutableSet.toImmutableSet());
+    App.LOG.info("Parsed variants in " + (System.currentTimeMillis() - time) + " seconds");
+    perThreadReaders.asMap().values().forEach(VCFFileReader::close);
+
+    App.LOG.info("Evaluating " + variantsToEval.size() + " variants for de novo mutations");
+    ImmutableList<DeNovoResult> results =
+        variantsToEval
+            .stream()
+            .parallel()
+            .map(this::generatePosition)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .map(this::evaluate)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
             .collect(ImmutableList.toImmutableList());
     return results;
   }
 
-  private VariantContext maybeLogProgress(VariantContext vc) {
+  private VariantContext maybeLogParseProgress(VariantContext vc) {
     if (contigLogCount.count(vc.getContig()) % 10000 == 0) {
       App.LOG.info(
-          "Processed "
+          "Parsed "
               + contigLogCount.count(vc.getContig())
               + " positions on  contig "
               + vc.getContig());
@@ -185,6 +200,21 @@ public class TrioEvaluator {
                             new VCFFileReader(vcf)
                                 .query(r.getSequenceName(), i * binSize + 1, (i + 1) * binSize)))
         .map(CloseableIterator::stream);
+  }
+
+  private Stream<Locatable> genomeBins(File vcf) {
+    final int binSize = 100000;
+    return vcfHeaderCache
+        .apply(vcf)
+        .getContigLines()
+        .stream()
+        .map(VCFContigHeaderLine::getSAMSequenceRecord)
+        .flatMap(
+            r ->
+                IntStream.rangeClosed(0, r.getSequenceLength() / binSize)
+                    .mapToObj(
+                        i ->
+                            new Interval(r.getSequenceName(), i * binSize + 1, (i + 1) * binSize)));
   }
 
   private static File formSerializedOutput(File textOutput) {
