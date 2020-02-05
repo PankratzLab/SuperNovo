@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -71,6 +72,7 @@ public class TrioEvaluator {
   private final LoadingCache<GenomePosition, Pileup> p2Pileups;
 
   private final Multiset<String> contigLogCount = ConcurrentHashMultiset.create();
+  private final AtomicInteger processedVariantsCount = new AtomicInteger(0);
   private final Function<File, VCFHeader> vcfHeaderCache =
       CacheBuilder.newBuilder()
           .softValues()
@@ -137,6 +139,7 @@ public class TrioEvaluator {
         variantsToEval
             .stream()
             .parallel()
+            .map(v -> maybeLogProcessProgress(v, variantsToEval.size()))
             .map(this::generatePosition)
             .filter(Optional::isPresent)
             .map(Optional::get)
@@ -144,6 +147,7 @@ public class TrioEvaluator {
             .filter(Optional::isPresent)
             .map(Optional::get)
             .collect(ImmutableList.toImmutableList());
+    App.LOG.info("Finished evluating " + variantsToEval.size() + " variants for de novo mutations");
     return results;
   }
 
@@ -152,10 +156,18 @@ public class TrioEvaluator {
       App.LOG.info(
           "Parsed "
               + contigLogCount.count(vc.getContig())
-              + " positions on  contig "
+              + " positions on contig "
               + vc.getContig());
     }
     contigLogCount.add(vc.getContig());
+    return vc;
+  }
+
+  private VariantContext maybeLogProcessProgress(VariantContext vc, int totalToProcess) {
+    int processed = processedVariantsCount.incrementAndGet() - 1;
+    if (processed % 10 == 0) {
+      App.LOG.info("Processed " + processed + " variants (of " + totalToProcess + " total");
+    }
     return vc;
   }
 
