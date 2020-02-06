@@ -415,51 +415,48 @@ public class DeNovoResult implements OutputFields, Serializable {
     try (VariantContextWriter snpEffOutWriter =
         new VariantContextWriterBuilder().setOutputFile(intermediateVCFOutput).build()) {
       Process snpEffProc = new ProcessBuilder(cmd).redirectError(Redirect.INHERIT).start();
+      Thread readInThread =
+          new Thread(
+              () -> {
+                try (VCFIterator vcfIter =
+                    new VCFIteratorBuilder()
+                        .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
+                  App.LOG.info(vcfIter.getHeader().toString());
+                  String annDescrip =
+                      vcfIter.getHeader().getInfoHeaderLine(SNPEFF_ANN_FIELD).getDescription();
+                  String[] annHeader =
+                      annDescrip
+                          .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
+                          .split(SNPEFF_ANN_DELIM);
+                  App.LOG.info(Arrays.toString(annHeader));
+                  Map<String, Integer> fieldIndices =
+                      IntStream.range(0, annHeader.length)
+                          .boxed()
+                          .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
+                  int annotated = 0;
+                  App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
+                  snpEffOutWriter.writeHeader(vcfIter.getHeader());
+                  for (DeNovoResult deNovoResult : deNovoResults) {
+                    VariantContext annotatedVC = vcfIter.next();
+                    snpEffOutWriter.add(annotatedVC);
+                    deNovoResult.setAnnos(annotatedVC, fieldIndices);
+                    if (annotated++ % 10000 == 0)
+                      App.LOG.log(
+                          Level.INFO,
+                          "Annotated " + annotated + " variants (of " + deNovoResults.size() + ")");
+                  }
+                  if (vcfIter.hasNext()) App.LOG.warn("VCF Iteration has not completed");
+                } catch (IOException e) {
+                  App.LOG.error(e);
+                }
+              });
+      readInThread.start();
       try (VariantContextWriter snpEffPipeWriter =
           new VariantContextWriterBuilder()
               .clearOptions()
               .clearIndexCreator()
               .setOutputVCFStream(new BufferedOutputStream(snpEffProc.getOutputStream()))
               .build()) {
-        Thread readInThread =
-            new Thread(
-                () -> {
-                  try (VCFIterator vcfIter =
-                      new VCFIteratorBuilder()
-                          .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
-                    App.LOG.info(vcfIter.getHeader().toString());
-                    String annDescrip =
-                        vcfIter.getHeader().getInfoHeaderLine(SNPEFF_ANN_FIELD).getDescription();
-                    String[] annHeader =
-                        annDescrip
-                            .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
-                            .split(SNPEFF_ANN_DELIM);
-                    App.LOG.info(Arrays.toString(annHeader));
-                    Map<String, Integer> fieldIndices =
-                        IntStream.range(0, annHeader.length)
-                            .boxed()
-                            .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
-                    int annotated = 0;
-                    App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
-                    snpEffOutWriter.setHeader(vcfIter.getHeader());
-                    for (DeNovoResult deNovoResult : deNovoResults) {
-                      VariantContext annotatedVC = vcfIter.next();
-                      snpEffOutWriter.add(annotatedVC);
-                      deNovoResult.setAnnos(annotatedVC, fieldIndices);
-                      if (annotated++ % 10000 == 0)
-                        App.LOG.log(
-                            Level.INFO,
-                            "Annotated "
-                                + annotated
-                                + " variants (of "
-                                + deNovoResults.size()
-                                + ")");
-                    }
-                  } catch (IOException e) {
-                    App.LOG.error(e);
-                  }
-                });
-        readInThread.start();
         ImmutableList<String> samples =
             deNovoResults
                 .stream()
@@ -479,14 +476,13 @@ public class DeNovoResult implements OutputFields, Serializable {
                 Level.INFO,
                 "Generated " + generated + " variants (of " + deNovoResults.size() + ")");
         }
-        readInThread.join();
-      } catch (InterruptedException e) {
-        App.LOG.error(e);
-        Thread.currentThread().interrupt();
       }
-
+      readInThread.join();
     } catch (IOException e) {
       App.LOG.error(e);
+    } catch (InterruptedException e) {
+      App.LOG.error(e);
+      Thread.currentThread().interrupt();
     }
   }
 
