@@ -68,6 +68,14 @@ public class App implements Runnable {
   private String p2ID;
 
   @Option(
+    names = {"--genome", "--snpEffGenome"},
+    paramLabel = "GENOME",
+    description = "Genome build argument for snpeff",
+    required = true
+  )
+  private String snpEffGenome;
+
+  @Option(
     names = {"--output", "-o"},
     paramLabel = "FILE",
     description = "Output file for parsed de novo variants",
@@ -82,7 +90,8 @@ public class App implements Runnable {
   @Override
   public void run() {
     try {
-      new TrioEvaluator(childBam, childID, p1Bam, p1ID, p2Bam, p2ID).reportDeNovos(vcf, output);
+      new TrioEvaluator(childBam, childID, p1Bam, p1ID, p2Bam, p2ID, snpEffGenome)
+          .reportDeNovos(vcf, output);
     } catch (IOException | ClassNotFoundException e) {
       LOG.error("An IO error was encountered", e);
     }

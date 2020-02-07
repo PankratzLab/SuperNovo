@@ -244,7 +244,6 @@ public class DeNovoResult implements OutputFields, Serializable {
   private static final String NO_NON_SUPERNOVO_REASON = ".";
 
   private static final String SNP_EFF_JAR = "/home/pankrat2/public/bin/snpEff/snpEff.jar";
-  private static final String SNPEFF_GENOME = "hg19";
   private static final String SNPEFF_ANN_FIELD = "ANN";
   private static final String SNPEFF_ANN_DELIM = "[\\s]?\\|[\\s]?";
   private static final String SNPEFF_GENE = "Gene_Name";
@@ -398,7 +397,10 @@ public class DeNovoResult implements OutputFields, Serializable {
   }
 
   public static void retrieveAnnos(
-      List<DeNovoResult> deNovoResults, File vcfOutput, SAMSequenceDictionary dictionary) {
+      List<DeNovoResult> deNovoResults,
+      File vcfOutput,
+      SAMSequenceDictionary dictionary,
+      String snpEffGenome) {
     File intermediateVCFOutput = new File(vcfOutput.getParentFile(), "TEMP_" + vcfOutput.getName());
     App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
     List<String> cmd =
@@ -408,7 +410,7 @@ public class DeNovoResult implements OutputFields, Serializable {
             .add("-jar")
             .add(SNP_EFF_JAR)
             .add("eff")
-            .add(SNPEFF_GENOME)
+            .add(snpEffGenome)
             .add("-")
             .build();
 

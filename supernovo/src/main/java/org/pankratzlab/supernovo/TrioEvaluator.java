@@ -66,6 +66,7 @@ public class TrioEvaluator {
   private final String childID;
   private final String parent1ID;
   private final String parent2ID;
+  private final String snpEffGenome;
 
   private final LoadingCache<GenomePosition, Pileup> childPileups;
   private final LoadingCache<GenomePosition, Pileup> p1Pileups;
@@ -88,6 +89,7 @@ public class TrioEvaluator {
    * @param childBam {@link SamReader} of child to evluate for de novo variants
    * @param parent1Bam {@link SamReader} of one parent for child
    * @param parent2Bam {@link SamReader} of second parent for child
+   * @param snpEffGenome genome build argument to supply SnpEff
    */
   public TrioEvaluator(
       File childBam,
@@ -95,11 +97,13 @@ public class TrioEvaluator {
       File parent1Bam,
       String parent1ID,
       File parent2Bam,
-      String parent2ID) {
+      String parent2ID,
+      String snpEffGenome) {
     super();
     this.childID = childID;
     this.parent1ID = parent1ID;
     this.parent2ID = parent2ID;
+    this.snpEffGenome = snpEffGenome;
 
     this.childPileups = PILEUP_CACHE_BUILDER.build(queryingPileupLoader(childBam));
     this.p1Pileups = PILEUP_CACHE_BUILDER.build(queryingPileupLoader(parent1Bam));
@@ -188,7 +192,7 @@ public class TrioEvaluator {
       results = generateResults(vcf);
     }
     DeNovoResult.retrieveAnnos(
-        results, vcfOutput, vcfHeaderCache.apply(vcf).getSequenceDictionary());
+        results, vcfOutput, vcfHeaderCache.apply(vcf).getSequenceDictionary(), snpEffGenome);
     serializeResults(results, serOutput);
     summarizeResults(results, formSummarizedOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
