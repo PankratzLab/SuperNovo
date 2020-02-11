@@ -341,10 +341,14 @@ public class TrioEvaluator {
   public static boolean looksVariant(Depth depth) {
     return depth.getBiAlleles().size() == 2
         && depth.weightedBiallelicDepth() >= MIN_DEPTH
-        && depth.weightedMinorAlleleFraction() >= MIN_ALLELIC_FRAC
+        && passesAllelicFrac(depth)
         && Arrays.stream(Depth.Allele.values())
             .mapToDouble(depth::allelicWeightedDepth)
             .allMatch(d -> d >= MIN_ALLELIC_DEPTH);
+  }
+
+  public static boolean passesAllelicFrac(Depth depth) {
+    return depth.weightedMinorAlleleFraction() >= MIN_ALLELIC_FRAC;
   }
 
   public static boolean moreThanTwoViableAlleles(Pileup pileup) {

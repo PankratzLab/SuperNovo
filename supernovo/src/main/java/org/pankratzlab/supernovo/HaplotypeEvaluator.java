@@ -152,10 +152,11 @@ public class HaplotypeEvaluator {
             concordance(childPile, searchPileup).ifPresent(concordances::add);
           }
         }
-        if (TrioEvaluator.looksDenovo(
-                searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))
+        if (TrioEvaluator.passesAllelicFrac(searchPileup.getDepth())
             && concordance(childPile, searchPileup).orElse(0.0)
-                >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE) {
+                >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE
+            && TrioEvaluator.looksDenovo(
+                searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))) {
           otherDenovoPositions.add(searchPos);
         }
       }
