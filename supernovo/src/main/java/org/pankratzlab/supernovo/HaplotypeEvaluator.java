@@ -2,6 +2,7 @@ package org.pankratzlab.supernovo;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.function.Function;
 import org.pankratzlab.supernovo.output.DeNovoResult;
@@ -148,12 +149,13 @@ public class HaplotypeEvaluator {
             otherTriallelics++;
           } else {
             otherBiallelics++;
-            concordances.add(concordance(childPile, searchPileup));
+            concordance(childPile, searchPileup).ifPresent(concordances::add);
           }
         }
         if (TrioEvaluator.looksDenovo(
                 searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))
-            && concordance(childPile, searchPileup) >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE) {
+            && concordance(childPile, searchPileup).orElse(0.0)
+                >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE) {
           otherDenovoPositions.add(searchPos);
         }
       }
@@ -178,18 +180,20 @@ public class HaplotypeEvaluator {
     return adjacentDeNovos;
   }
 
-  private static double concordance(Pileup base, Pileup search) {
+  private static OptionalDouble concordance(Pileup base, Pileup search) {
     Set<Integer> h1 = base.getDepth().allelicRecords(Allele.A1);
     Set<Integer> h2 = base.getDepth().allelicRecords(Allele.A2);
 
     Set<Integer> search1 = search.getDepth().allelicRecords(Allele.A1);
     Set<Integer> search2 = search.getDepth().allelicRecords(Allele.A2);
 
-    double totalOverlap = search.getDepth().rawTotalDepth();
+    double totalOverlap =
+        Sets.intersection(Sets.union(h1, h2), Sets.union(search1, search2)).size();
+    if (totalOverlap == 0.0) return OptionalDouble.empty();
     int maxOverlap =
         Integer.max(
             Sets.intersection(search1, h1).size() + Sets.intersection(search2, h2).size(),
             Sets.intersection(search1, h2).size() + Sets.intersection(search2, h1).size());
-    return maxOverlap / totalOverlap;
+    return OptionalDouble.of(maxOverlap / totalOverlap);
   }
 }
