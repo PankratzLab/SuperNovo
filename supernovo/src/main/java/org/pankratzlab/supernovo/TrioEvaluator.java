@@ -22,7 +22,6 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.pankratzlab.supernovo.output.DeNovoResult;
-import org.pankratzlab.supernovo.output.OutputFields;
 import org.pankratzlab.supernovo.pileup.Depth;
 import org.pankratzlab.supernovo.pileup.Pileup;
 import org.pankratzlab.supernovo.pileup.SAMPositionQueryOverlap;
@@ -196,7 +195,7 @@ public class TrioEvaluator {
     serializeResults(results, serOutput);
     summarizeResults(results, formSummarizedOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
-      writer.println(OutputFields.generateHeader(DeNovoResult.class));
+      results.stream().findFirst().map(DeNovoResult::generateHeader).ifPresent(writer::println);
       results.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
     }
   }

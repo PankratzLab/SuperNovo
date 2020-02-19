@@ -4,6 +4,7 @@ import java.lang.reflect.Field;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.pankratzlab.supernovo.App;
 import com.google.common.base.Optional;
 
 /**
@@ -52,20 +53,23 @@ public interface OutputFields {
     return Stream.of(value.toString());
   }
 
-  static String generateHeader(Class<? extends OutputFields> outputClass) {
-    return fieldHeaders(outputClass).collect(Constants.JOIN_COLLECTOR);
+  default String generateHeader() {
+    return fieldHeaders().collect(Constants.JOIN_COLLECTOR);
   }
 
-  static Stream<String> fieldHeaders(Class<? extends OutputFields> outputClass) {
-    return Stream.of(outputClass.getFields()).flatMap(OutputFields::recurseHeaders);
+  default Stream<String> fieldHeaders() {
+    return Stream.of(this.getClass().getFields()).flatMap(this::recurseHeaders);
   }
 
-  @SuppressWarnings("unchecked")
-  static Stream<String> recurseHeaders(Field field) {
+  default Stream<String> recurseHeaders(Field field) {
     Class<?> fieldType = field.getType();
     if (OutputFields.class.isAssignableFrom(fieldType)) {
       final String prefix = field.getName() + "_";
-      return fieldHeaders((Class<? extends OutputFields>) fieldType).map(h -> prefix + h);
+      try {
+        return ((OutputFields) field.get(this)).fieldHeaders().map(h -> prefix + h);
+      } catch (IllegalArgumentException | IllegalAccessException e) {
+        App.LOG.error(e);
+      }
     }
     return Stream.of(field.getName());
   }
