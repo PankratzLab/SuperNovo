@@ -10,6 +10,7 @@ import java.lang.ProcessBuilder.Redirect;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.Level;
 import org.pankratzlab.supernovo.App;
@@ -25,13 +26,16 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import htsjdk.samtools.SAMSequenceDictionary;
+import htsjdk.samtools.util.CloseableIterator;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.GenotypeBuilder;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.variantcontext.VariantContextBuilder;
 import htsjdk.variant.variantcontext.writer.VariantContextWriter;
 import htsjdk.variant.variantcontext.writer.VariantContextWriterBuilder;
+import htsjdk.variant.vcf.VCFFileReader;
 import htsjdk.variant.vcf.VCFHeader;
+import htsjdk.variant.vcf.VCFInfoHeaderLine;
 import htsjdk.variant.vcf.VCFIterator;
 import htsjdk.variant.vcf.VCFIteratorBuilder;
 import htsjdk.variant.vcf.VCFStandardHeaderLines;
@@ -250,6 +254,9 @@ public class DeNovoResult implements OutputFields, Serializable {
   private static final String SNPEFF_ANNO = "Annotation";
   private static final String SNPEFF_IMPACT = "Annotation_Impact";
 
+  private static final String ANNOVAR_DIR = "/home/pankrat2/public/bin/ANNOVAR/annovar/";
+  private static final String ANNOVAR_TABLE_COMMAND = "table_annovar.pl";
+
   public final String chr;
   public final int position;
   public String snpeffGene;
@@ -259,6 +266,8 @@ public class DeNovoResult implements OutputFields, Serializable {
   public String snpeffImpact;
   public String snpeffHGVSc;
   public String snpeffHGVSp;
+
+  public Map<String, String> annovar;
 
   public final PileAllele refAllele;
   public final Optional<PileAllele> altAllele;
@@ -398,10 +407,11 @@ public class DeNovoResult implements OutputFields, Serializable {
 
   public static void retrieveAnnos(
       List<DeNovoResult> deNovoResults,
-      File vcfOutput,
+      File vcfOutputRoot,
       SAMSequenceDictionary dictionary,
       String snpEffGenome) {
-    File intermediateVCFOutput = new File(vcfOutput.getParentFile(), "TEMP_" + vcfOutput.getName());
+    File intermediateVCFOutput =
+        new File(vcfOutputRoot.getParentFile(), "TEMP_" + vcfOutputRoot.getName() + ".vcf.gz");
     App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
     List<String> cmd =
         ImmutableList.<String>builder()
@@ -485,6 +495,76 @@ public class DeNovoResult implements OutputFields, Serializable {
     } catch (InterruptedException e) {
       App.LOG.error(e);
       Thread.currentThread().interrupt();
+    }
+    App.LOG.info("Running annovar");
+    List<String> annovarCmd =
+        ImmutableList.of(
+            ANNOVAR_DIR + ANNOVAR_TABLE_COMMAND,
+            intermediateVCFOutput.getPath(),
+            ANNOVAR_DIR + "humandb/",
+            "-buildver",
+            snpEffGenome,
+            "-out",
+            vcfOutputRoot.getName(),
+            "-remove",
+            "-protocol",
+            "refGene,cytoBand,exac03,avsnp147,dbnsfp30a",
+            "-operation",
+            "gx,r,f,f,f",
+            "-nastring",
+            ".",
+            "-vcfinput",
+            "--thread",
+            String.valueOf(ForkJoinPool.getCommonPoolParallelism()));
+    try {
+      Process annovarProc =
+          new ProcessBuilder(annovarCmd)
+              .redirectError(Redirect.INHERIT)
+              .redirectOutput(Redirect.INHERIT)
+              .start();
+      annovarProc.waitFor();
+    } catch (IOException e) {
+      App.LOG.error("An error occurreed while running annovar", e);
+    } catch (InterruptedException e) {
+      App.LOG.error(e);
+      Thread.currentThread().interrupt();
+    }
+    App.LOG.info("Finished running annovar, reading annotations");
+    try (VCFFileReader annovarVcfReader =
+            new VCFFileReader(new File(vcfOutputRoot.getPath() + ".hg19_multianno.vcf"), false);
+        CloseableIterator<VariantContext> annovarIter = annovarVcfReader.iterator()) {
+      List<String> annovarAnnos =
+          annovarVcfReader
+              .getFileHeader()
+              .getInfoHeaderLines()
+              .stream()
+              .filter(info -> info.getDescription().contains("ANNOVAR"))
+              .map(VCFInfoHeaderLine::getID)
+              .collect(ImmutableList.toImmutableList());
+      for (DeNovoResult result : deNovoResults) {
+        if (annovarIter.hasNext()) {
+          VariantContext vc = annovarIter.next();
+          if (result.position == vc.getStart()) {
+            result.annovar =
+                annovarAnnos
+                    .stream()
+                    .collect(
+                        ImmutableMap.toImmutableMap(
+                            anno -> anno, anno -> vc.getAttributeAsString(anno, ".")));
+          } else {
+            App.LOG.error(
+                "Annovar VCF and results are not matched, \n\tnext result: "
+                    + result.pos
+                    + "\n\tnext annovar: "
+                    + vc.getContig()
+                    + ":"
+                    + vc.getStart());
+          }
+
+        } else {
+          App.LOG.error("Annovar VCF ended before annotating all de novo results");
+        }
+      }
     }
   }
 
