@@ -1,6 +1,7 @@
 package org.pankratzlab.supernovo.output;
 
 import java.lang.reflect.Field;
+import java.util.Map;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -47,6 +48,9 @@ public interface OutputFields {
     if (value instanceof Optional<?>) {
       return Stream.of(((Optional<?>) value).transform(Object::toString).or(Constants.MISSING));
     }
+    if (value instanceof Map<?, ?>) {
+      return ((Map<?, ?>) value).values().stream().map(Object::toString);
+    }
     if (value == null) {
       return Stream.of(Constants.MISSING);
     }
@@ -61,16 +65,28 @@ public interface OutputFields {
     return Stream.of(this.getClass().getFields()).flatMap(this::recurseHeaders);
   }
 
+  @SuppressWarnings("unchecked")
   default Stream<String> recurseHeaders(Field field) {
     Class<?> fieldType = field.getType();
     if (OutputFields.class.isAssignableFrom(fieldType)) {
-      final String prefix = field.getName() + "_";
       try {
-        return ((OutputFields) field.get(this)).fieldHeaders().map(h -> prefix + h);
+        return prefixHeaders(field, ((OutputFields) field.get(this)).fieldHeaders());
+      } catch (IllegalArgumentException | IllegalAccessException e) {
+        App.LOG.error(e);
+      }
+    } else if (Map.class.isAssignableFrom(fieldType)) {
+      try {
+        return prefixHeaders(
+            field, ((Map<? extends Object, ? extends Object>) field.get(this)).keySet().stream());
       } catch (IllegalArgumentException | IllegalAccessException e) {
         App.LOG.error(e);
       }
     }
     return Stream.of(field.getName());
+  }
+
+  static Stream<String> prefixHeaders(Field field, Stream<? extends Object> headers) {
+    final String prefix = field.getName() + "_";
+    return headers.map(Object::toString).map(h -> prefix + h);
   }
 }
