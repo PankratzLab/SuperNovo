@@ -11,8 +11,10 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -32,6 +34,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ConcurrentHashMultiset;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultiset;
 import com.google.common.collect.MoreCollectors;
@@ -84,6 +87,8 @@ public class TrioEvaluator {
                     }
                   }));
 
+  private ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>> deNovoResults;
+
   /**
    * @param childBam {@link SamReader} of child to evluate for de novo variants
    * @param parent1Bam {@link SamReader} of one parent for child
@@ -121,37 +126,37 @@ public class TrioEvaluator {
     };
   }
 
-  private ImmutableList<DeNovoResult> generateResults(File vcf) {
+  private void generateResults(File vcf) {
     LoadingCache<Thread, VCFFileReader> perThreadReaders =
         CacheBuilder.newBuilder().build(CacheLoader.from(t -> new VCFFileReader(vcf)));
     Supplier<VCFFileReader> getVCFReader =
         () -> perThreadReaders.getUnchecked(Thread.currentThread());
     long time = System.currentTimeMillis();
     App.LOG.info("Parsing variants from gvcf");
-    ImmutableSet<VariantContext> variantsToEval =
+    ImmutableSet<ReferencePosition> variantsToEval =
         genomeBins(vcf)
             .parallel()
             .map(loc -> getVCFReader.get().query(loc).stream())
             .flatMap(s -> s.map(this::maybeLogParseProgress).filter(this::keepVariant))
+            .map(this::generatePosition)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .filter(Predicates.not(deNovoResults::containsKey))
             .collect(ImmutableSet.toImmutableSet());
     App.LOG.info("Parsed variants in " + (System.currentTimeMillis() - time) + " seconds");
     perThreadReaders.asMap().values().forEach(VCFFileReader::close);
 
     App.LOG.info("Evaluating " + variantsToEval.size() + " variants for de novo mutations");
-    ImmutableList<DeNovoResult> results =
-        variantsToEval
-            .stream()
-            .parallel()
-            .map(v -> maybeLogProcessProgress(v, variantsToEval.size()))
-            .map(this::generatePosition)
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .map(this::evaluate)
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .collect(ImmutableList.toImmutableList());
+    if (!deNovoResults.isEmpty()) {
+      App.LOG.info(deNovoResults.size() + " variants previously evaluated");
+    }
+    variantsToEval
+        .stream()
+        .parallel()
+        .map(r -> maybeLogProcessProgress(r, variantsToEval.size()))
+        .map(r -> ImmutableMap.of(r, evaluate(r)))
+        .forEach(deNovoResults::putAll);
     App.LOG.info("Finished evluating " + variantsToEval.size() + " variants for de novo mutations");
-    return results;
   }
 
   private VariantContext maybeLogParseProgress(VariantContext vc) {
@@ -166,37 +171,43 @@ public class TrioEvaluator {
     return vc;
   }
 
-  private VariantContext maybeLogProcessProgress(VariantContext vc, int totalToProcess) {
+  private ReferencePosition maybeLogProcessProgress(ReferencePosition rp, int totalToProcess) {
     int processed = processedVariantsCount.incrementAndGet() - 1;
     if (processed % 10 == 0) {
       App.LOG.info("Processed " + processed + " variants (of " + totalToProcess + " total");
     }
-    return vc;
+    return rp;
   }
 
   public void reportDeNovos(File vcf, File output) throws IOException, ClassNotFoundException {
     File vcfOutput = formVCFOutput(output);
     File serOutput = formSerializedOutput(output);
-    ImmutableList<DeNovoResult> results;
     if (serOutput.exists()) {
       App.LOG.info("Serialized output already exists, loading...");
       try {
-        results = deserializeResults(serOutput);
+        deNovoResults = deserializeResults(serOutput);
         App.LOG.info("Serialized output loaded");
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
-        results = generateResults(vcf);
+        deNovoResults = new ConcurrentHashMap<>();
       }
-    } else {
-      results = generateResults(vcf);
     }
+    generateResults(vcf);
+    ImmutableList<DeNovoResult> resultsList =
+        deNovoResults
+            .values()
+            .stream()
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .sorted(Comparator.comparing(DeNovoResult::getPos))
+            .collect(ImmutableList.toImmutableList());
     DeNovoResult.retrieveAnnos(
-        results, vcfOutput, vcfHeaderCache.apply(vcf).getSequenceDictionary(), snpEffGenome);
-    serializeResults(results, serOutput);
-    summarizeResults(results, formSummarizedOutput(output));
+        resultsList, vcfOutput, vcfHeaderCache.apply(vcf).getSequenceDictionary(), snpEffGenome);
+    serializeResults(serOutput);
+    summarizeResults(resultsList, formSummarizedOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
-      results.stream().findFirst().map(DeNovoResult::generateHeader).ifPresent(writer::println);
-      results.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
+      resultsList.stream().findFirst().map(DeNovoResult::generateHeader).ifPresent(writer::println);
+      resultsList.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
     }
   }
 
@@ -247,10 +258,10 @@ public class TrioEvaluator {
     return new File(path.substring(0, path.lastIndexOf('.')) + ".summary.txt");
   }
 
-  private void serializeResults(ImmutableList<DeNovoResult> results, File output) {
+  private void serializeResults(File output) {
     try (ObjectOutputStream oos =
         new ObjectOutputStream(new GZIPOutputStream(new FileOutputStream(output)))) {
-      oos.writeObject(results);
+      oos.writeObject(deNovoResults);
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -281,12 +292,12 @@ public class TrioEvaluator {
   }
 
   @SuppressWarnings("unchecked")
-  protected static ImmutableList<DeNovoResult> deserializeResults(File input)
-      throws IOException, ClassNotFoundException {
+  protected static ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>> deserializeResults(
+      File input) throws IOException, ClassNotFoundException {
     try (ObjectInputStream ois =
         new ObjectInputStream(
             new BufferedInputStream(new GZIPInputStream(new FileInputStream(input))))) {
-      return (ImmutableList<DeNovoResult>) ois.readObject();
+      return (ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>>) ois.readObject();
     }
   }
 

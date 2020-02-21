@@ -8,6 +8,7 @@ import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.lang.ProcessBuilder.Redirect;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
@@ -297,13 +298,13 @@ public class DeNovoResult implements OutputFields, Serializable {
 
   public final String chr;
   public final int position;
-  public String snpeffGene;
+  public transient String snpeffGene;
 
-  public String snpeffAnnotation;
+  public transient String snpeffAnnotation;
 
-  public String snpeffImpact;
-  public String snpeffHGVSc;
-  public String snpeffHGVSp;
+  public transient String snpeffImpact;
+  public transient String snpeffHGVSc;
+  public transient String snpeffHGVSp;
 
   public transient AnnotationLibrary.Annotation annovar;
 
@@ -444,7 +445,7 @@ public class DeNovoResult implements OutputFields, Serializable {
   }
 
   public static void retrieveAnnos(
-      List<DeNovoResult> deNovoResults,
+      Collection<DeNovoResult> deNovoResults,
       File vcfOutputRoot,
       SAMSequenceDictionary dictionary,
       String snpEffGenome) {
@@ -600,6 +601,11 @@ public class DeNovoResult implements OutputFields, Serializable {
         }
       }
     }
+  }
+
+  /** @return the pos */
+  public ReferencePosition getPos() {
+    return pos;
   }
 
   @Override
