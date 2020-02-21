@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.pankratzlab.supernovo.App;
 import org.pankratzlab.supernovo.HaplotypeEvaluator;
@@ -239,6 +240,43 @@ public class DeNovoResult implements OutputFields, Serializable {
     }
   }
 
+  private static class AnnotationLibrary implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private class Annotation implements OutputFields, Serializable {
+      private static final long serialVersionUID = 1L;
+      private final ImmutableMap<String, String> annotationValues;
+
+      public Annotation(VariantContext vc) {
+        annotationValues =
+            annotationNames
+                .stream()
+                .collect(
+                    ImmutableMap.toImmutableMap(
+                        anno -> anno, anno -> vc.getAttributeAsString(anno, ".")));
+      }
+
+      @Override
+      public Stream<String> fieldHeaders() {
+        return annotationNames.stream();
+      }
+
+      @Override
+      public Stream<String> fieldValues() {
+        return fieldHeaders().map(annotationValues::get);
+      }
+    }
+
+    private final ImmutableList<String> annotationNames;
+
+    /** @param annotationNames */
+    public AnnotationLibrary(ImmutableList<String> annotationNames) {
+      super();
+      this.annotationNames = annotationNames;
+    }
+  }
+
   private static final int MIN_PARENTAL_DEPTH = 10;
 
   private static final int MAX_PARENTAL_ALLELIC_DEPTH = 1;
@@ -267,7 +305,7 @@ public class DeNovoResult implements OutputFields, Serializable {
   public String snpeffHGVSc;
   public String snpeffHGVSp;
 
-  public Map<String, String> annovar;
+  public transient AnnotationLibrary.Annotation annovar;
 
   public final PileAllele refAllele;
   public final Optional<PileAllele> altAllele;
@@ -533,24 +571,20 @@ public class DeNovoResult implements OutputFields, Serializable {
     try (VCFFileReader annovarVcfReader =
             new VCFFileReader(new File(vcfOutputRoot.getPath() + ".hg19_multianno.vcf"), false);
         CloseableIterator<VariantContext> annovarIter = annovarVcfReader.iterator()) {
-      List<String> annovarAnnos =
-          annovarVcfReader
-              .getFileHeader()
-              .getInfoHeaderLines()
-              .stream()
-              .filter(info -> info.getDescription().contains("ANNOVAR"))
-              .map(VCFInfoHeaderLine::getID)
-              .collect(ImmutableList.toImmutableList());
+      AnnotationLibrary annovarLibrary =
+          new AnnotationLibrary(
+              annovarVcfReader
+                  .getFileHeader()
+                  .getInfoHeaderLines()
+                  .stream()
+                  .filter(info -> info.getDescription().contains("ANNOVAR"))
+                  .map(VCFInfoHeaderLine::getID)
+                  .collect(ImmutableList.toImmutableList()));
       for (DeNovoResult result : deNovoResults) {
         if (annovarIter.hasNext()) {
           VariantContext vc = annovarIter.next();
           if (result.position == vc.getStart()) {
-            result.annovar =
-                annovarAnnos
-                    .stream()
-                    .collect(
-                        ImmutableMap.toImmutableMap(
-                            anno -> anno, anno -> vc.getAttributeAsString(anno, ".")));
+            result.annovar = annovarLibrary.new Annotation(vc);
           } else {
             App.LOG.error(
                 "Annovar VCF and results are not matched, \n\tnext result: "
