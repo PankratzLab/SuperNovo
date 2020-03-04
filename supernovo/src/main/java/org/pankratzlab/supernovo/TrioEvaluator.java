@@ -182,17 +182,45 @@ public class TrioEvaluator {
   public void reportDeNovos(File vcf, File output) throws IOException, ClassNotFoundException {
     File vcfOutput = formVCFOutput(output);
     File serOutput = formSerializedOutput(output);
+    File chunkedSerOutput = formChunkedSerializedOutput(output);
+    deNovoResults = new ConcurrentHashMap<>();
     if (serOutput.exists()) {
-      App.LOG.info("Serialized output already exists, loading...");
+      App.LOG.info("Previous serialized output already exists, loading...");
       try {
         deNovoResults = deserializeResults(serOutput);
         App.LOG.info("Serialized output loaded");
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
-        deNovoResults = new ConcurrentHashMap<>();
       }
     }
-    generateResults(vcf);
+    if (chunkedSerOutput.exists()) {
+      App.LOG.info("Previous chunked progress serialized output already exists, loading...");
+      try {
+        deNovoResults = deserializeResults(serOutput);
+        App.LOG.info("Serialized output loaded");
+      } catch (Exception e) {
+        App.LOG.error("Error loading serialized results, regenerating", e);
+      }
+    }
+    Thread generateResultsThread = new Thread(() -> this.generateResults(vcf));
+    generateResultsThread.start();
+    long lastSerialize = System.currentTimeMillis();
+    while (generateResultsThread.isAlive()) {
+      if (System.currentTimeMillis() - lastSerialize > 600000) {
+        File tempChunkedSerOutput = new File(chunkedSerOutput.getPath() + "_TEMP");
+        serializeResults(tempChunkedSerOutput);
+        if (!tempChunkedSerOutput.renameTo(chunkedSerOutput)) {
+          App.LOG.error("Failed to overwrite temp chunked output, chunking may not be reloadable");
+        }
+        lastSerialize = System.currentTimeMillis();
+      } else {
+        try {
+          Thread.sleep(60000);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
     ImmutableList<DeNovoResult> resultsList =
         deNovoResults
             .values()
@@ -246,6 +274,10 @@ public class TrioEvaluator {
   private static File formSerializedOutput(File textOutput) {
     String path = textOutput.getPath();
     return new File(path.substring(0, path.lastIndexOf('.')) + SER_EXTENSION);
+  }
+
+  private static File formChunkedSerializedOutput(File textOutput) {
+    return new File(formSerializedOutput(textOutput).getPath() + "_CHUNKED");
   }
 
   private static File formVCFOutput(File textOutput) {
