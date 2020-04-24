@@ -335,9 +335,9 @@ public class TrioEvaluator {
 
   private boolean keepVariant(VariantContext vc) {
     Genotype geno = vc.getGenotype(childID);
-    return geno.isHet()
-        && !geno.isHetNonRef()
-        && geno.getAlleles().stream().mapToInt(Allele::length).anyMatch(i -> i == 1);
+    return geno.getPloidy() == 1
+        || (geno.isHet() && !geno.isHetNonRef())
+            && geno.getAlleles().stream().mapToInt(Allele::length).anyMatch(i -> i == 1);
   }
 
   private Optional<ReferencePosition> generatePosition(VariantContext vc) {
