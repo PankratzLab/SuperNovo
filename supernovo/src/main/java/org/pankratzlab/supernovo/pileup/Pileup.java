@@ -3,6 +3,7 @@ package org.pankratzlab.supernovo.pileup;
 import java.io.Serializable;
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.pankratzlab.supernovo.GenomePosition;
 import org.pankratzlab.supernovo.PileAllele;
@@ -12,8 +13,11 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimaps;
+import com.google.common.collect.Sets;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.SAMRecord;
@@ -176,6 +180,15 @@ public class Pileup implements Serializable {
   /** @return Multimap from {@link PileAllele} to hash code for the piled read */
   public ImmutableSetMultimap<PileAllele, Integer> getRecordsByBase() {
     return basePiles;
+  }
+
+  /** @return Set of hash code for each piled read */
+  public Set<Integer> getRecords() {
+    return Multimaps.asMap(basePiles)
+        .values()
+        .stream()
+        .reduce(Sets::union)
+        .orElse(ImmutableSet.of());
   }
 
   /** @return the clippedReadCounts */
