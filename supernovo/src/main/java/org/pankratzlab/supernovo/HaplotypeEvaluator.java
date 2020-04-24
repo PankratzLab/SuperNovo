@@ -104,6 +104,8 @@ public class HaplotypeEvaluator {
   }
 
   private static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
+  private static final double MIN_OTHER_DN_ALLELIC_DEPTH = 1.5;
+  private static final double OTHER_DN_ALLELIC_DEPTH_INDEPENDENT = 3.0;
 
   private final Pileup childPile;
   private final GenomePosition pos;
@@ -152,7 +154,11 @@ public class HaplotypeEvaluator {
             concordance(childPile, searchPileup).ifPresent(concordances::add);
           }
         }
-        if (TrioEvaluator.passesAllelicFrac(searchPileup.getDepth())
+        if (((TrioEvaluator.passesAllelicFrac(searchPileup.getDepth())
+                    && TrioEvaluator.passesAllelicDepth(
+                        searchPileup.getDepth(), MIN_OTHER_DN_ALLELIC_DEPTH))
+                || TrioEvaluator.passesAllelicDepth(
+                    searchPileup.getDepth(), OTHER_DN_ALLELIC_DEPTH_INDEPENDENT))
             && concordance(childPile, searchPileup).orElse(0.0)
                 >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE
             && TrioEvaluator.looksDenovo(
