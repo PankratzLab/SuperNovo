@@ -188,13 +188,28 @@ public class HaplotypeEvaluator {
     Set<Integer> search1 = search.getDepth().allelicRecords(Allele.A1);
     Set<Integer> search2 = search.getDepth().allelicRecords(Allele.A2);
 
-    double totalOverlap =
-        Sets.intersection(Sets.union(h1, h2), Sets.union(search1, search2)).size();
-    if (totalOverlap == 0.0) return OptionalDouble.empty();
-    int maxOverlap =
-        Integer.max(
-            Sets.intersection(search1, h1).size() + Sets.intersection(search2, h2).size(),
-            Sets.intersection(search1, h2).size() + Sets.intersection(search2, h1).size());
-    return OptionalDouble.of(maxOverlap / totalOverlap);
+    Set<Integer> h1Overlap = Sets.intersection(h1, search.getRecords());
+    Set<Integer> h2Overlap = Sets.intersection(h2, search.getRecords());
+
+    int h1Size = h1Overlap.size();
+    int h2Size = h2Overlap.size();
+
+    if (h1Size == 0 && h2Size == 0) return OptionalDouble.empty();
+
+    final double h1CisConc =
+        h1Size == 0 ? 1.0 : Sets.intersection(h1, search1).size() / (double) h1Size;
+    final double h2CisConc =
+        h2Size == 0 ? 1.0 : Sets.intersection(h2, search2).size() / (double) h2Size;
+
+    double cisConc = Math.min(h1CisConc, h2CisConc);
+
+    final double h1TransConc =
+        h1Size == 0 ? 1.0 : Sets.intersection(h1, search2).size() / (double) h1Size;
+    final double h2TransConc =
+        h2Size == 0 ? 1.0 : Sets.intersection(h2, search1).size() / (double) h2Size;
+
+    double transConc = Math.min(h1TransConc, h2TransConc);
+
+    return OptionalDouble.of(Math.max(cisConc, transConc));
   }
 }
