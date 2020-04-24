@@ -544,7 +544,7 @@ public class DeNovoResult implements OutputFields, Serializable {
             "-buildver",
             snpEffGenome,
             "-out",
-            vcfOutputRoot.getName(),
+            vcfOutputRoot.getPath(),
             "-remove",
             "-protocol",
             "refGene,cytoBand,exac03,avsnp147,dbnsfp30a",
