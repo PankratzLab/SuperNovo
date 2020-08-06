@@ -12,7 +12,7 @@ import htsjdk.samtools.SamReaderFactory;
 
 public class SAMPositionQueryOverlap implements SAMPositionOverlap, Closeable {
 
-  private static final SamReaderFactory SR_FACTORY = SamReaderFactory.make();
+  public static final SamReaderFactory SR_FACTORY = SamReaderFactory.make();
 
   private final Stream<SAMRecord> records;
   private final SAMRecordIterator iterator;

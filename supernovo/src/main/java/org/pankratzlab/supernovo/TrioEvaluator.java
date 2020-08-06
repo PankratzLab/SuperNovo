@@ -26,7 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.pankratzlab.supernovo.output.DeNovoResult;
 import org.pankratzlab.supernovo.pileup.Depth;
 import org.pankratzlab.supernovo.pileup.Pileup;
-import org.pankratzlab.supernovo.pileup.SAMPositionQueryOverlap;
+import org.pankratzlab.supernovo.pileup.PileupCache;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.cache.CacheBuilder;
@@ -70,9 +70,9 @@ public class TrioEvaluator {
   private final String parent2ID;
   private final String snpEffGenome;
 
-  private final LoadingCache<GenomePosition, Pileup> childPileups;
-  private final LoadingCache<GenomePosition, Pileup> p1Pileups;
-  private final LoadingCache<GenomePosition, Pileup> p2Pileups;
+  private final PileupCache childPileups;
+  private final PileupCache p1Pileups;
+  private final PileupCache p2Pileups;
 
   private final Multiset<String> contigLogCount = ConcurrentHashMultiset.create();
   private final AtomicInteger processedVariantsCount = new AtomicInteger(0);
@@ -109,21 +109,9 @@ public class TrioEvaluator {
     this.parent2ID = parent2ID;
     this.snpEffGenome = snpEffGenome;
 
-    this.childPileups = PILEUP_CACHE_BUILDER.build(queryingPileupLoader(childBam));
-    this.p1Pileups = PILEUP_CACHE_BUILDER.build(queryingPileupLoader(parent1Bam));
-    this.p2Pileups = PILEUP_CACHE_BUILDER.build(queryingPileupLoader(parent2Bam));
-  }
-
-  private static CacheLoader<GenomePosition, Pileup> queryingPileupLoader(final File bam) {
-    return new CacheLoader<GenomePosition, Pileup>() {
-
-      @Override
-      public Pileup load(GenomePosition pos) {
-        try (SAMPositionQueryOverlap spqo = new SAMPositionQueryOverlap(bam, pos)) {
-          return new Pileup(spqo.getRecords(), pos);
-        }
-      }
-    };
+    this.childPileups = new PileupCache(childBam);
+    this.p1Pileups = new PileupCache(parent1Bam);
+    this.p2Pileups = new PileupCache(parent2Bam);
   }
 
   private void generateResults(File vcf) {
@@ -358,20 +346,16 @@ public class TrioEvaluator {
   }
 
   private Optional<DeNovoResult> evaluate(ReferencePosition pos) {
-    Pileup childPile = childPileups.getUnchecked(pos);
+    Pileup childPile = childPileups.get(pos);
     if (looksVariant(childPile.getDepth())) {
       return Optional.of(
           new DeNovoResult(
               pos,
-              new HaplotypeEvaluator(
-                      childPile,
-                      childPileups::getUnchecked,
-                      p1Pileups::getUnchecked,
-                      p2Pileups::getUnchecked)
+              new HaplotypeEvaluator(childPile, childPileups, p1Pileups, p2Pileups)
                   .haplotypeConcordance(),
               generateSample(childID, pos, childPile, childPile),
-              generateSample(parent1ID, pos, p1Pileups.getUnchecked(pos), childPile),
-              generateSample(parent2ID, pos, p2Pileups.getUnchecked(pos), childPile)));
+              generateSample(parent1ID, pos, p1Pileups.get(pos), childPile),
+              generateSample(parent2ID, pos, p2Pileups.get(pos), childPile)));
     }
     return Optional.absent();
   }

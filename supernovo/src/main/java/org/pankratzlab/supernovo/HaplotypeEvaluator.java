@@ -2,12 +2,16 @@ package org.pankratzlab.supernovo;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.pankratzlab.supernovo.output.DeNovoResult;
 import org.pankratzlab.supernovo.pileup.Depth.Allele;
 import org.pankratzlab.supernovo.pileup.Pileup;
+import org.pankratzlab.supernovo.pileup.PileupCache;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
@@ -103,29 +107,26 @@ public class HaplotypeEvaluator {
     }
   }
 
-  private static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
+  public static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
   private static final double MIN_OTHER_DN_ALLELIC_DEPTH = 1.5;
   private static final double OTHER_DN_ALLELIC_DEPTH_INDEPENDENT = 3.0;
 
   private final Pileup childPile;
   private final GenomePosition pos;
-  private final Function<GenomePosition, Pileup> childPiles;
-  private final Function<GenomePosition, Pileup> p1Piles;
-  private final Function<GenomePosition, Pileup> p2Piles;
+  private final PileupCache childPileups;
+  private final PileupCache p1Piles;
+  private final PileupCache p2Piles;
   /**
    * @param child
    * @param p1
    * @param p2
    */
   public HaplotypeEvaluator(
-      Pileup childPile,
-      Function<GenomePosition, Pileup> childPiles,
-      Function<GenomePosition, Pileup> p1Piles,
-      Function<GenomePosition, Pileup> p2Piles) {
+      Pileup childPile, PileupCache childPileups, PileupCache p1Piles, PileupCache p2Piles) {
     super();
     this.childPile = childPile;
     this.pos = childPile.getPosition();
-    this.childPiles = childPiles;
+    this.childPileups = childPileups;
     this.p1Piles = p1Piles;
     this.p2Piles = p2Piles;
   }
@@ -139,11 +140,20 @@ public class HaplotypeEvaluator {
     int otherBiallelics = 0;
     int otherVariants = 0;
     ImmutableList.Builder<Double> concordances = ImmutableList.builder();
-
-    for (int searchPos = startSearch; searchPos < stopSearch; searchPos++) {
-      if (searchPos == pos.getPosition()) continue;
-      GenomePosition searchPosition = new GenomePosition(pos.getContig(), searchPos);
-      Pileup searchPileup = childPiles.apply(searchPosition);
+    Function<PileupCache, Map<GenomePosition, Pileup>> getQueryPileups =
+        p ->
+            p.getRange(
+                new GenomePosition(pos.getContig(), startSearch),
+                new GenomePosition(pos.getContig(), stopSearch));
+    Supplier<Map<GenomePosition, Pileup>> p1QueryPileups =
+        Suppliers.memoize(() -> getQueryPileups.apply(p1Piles));
+    Supplier<Map<GenomePosition, Pileup>> p2QueryPileups =
+        Suppliers.memoize(() -> getQueryPileups.apply(p2Piles));
+    for (Map.Entry<GenomePosition, Pileup> queryEntry :
+        getQueryPileups.apply(childPileups).entrySet()) {
+      GenomePosition searchPosition = queryEntry.getKey();
+      if (searchPosition.equals(pos)) continue;
+      Pileup searchPileup = queryEntry.getValue();
       if (searchPileup.getDepth().getBiAlleles().size() == 2) {
         if (TrioEvaluator.looksVariant(searchPileup.getDepth())) {
           otherVariants++;
@@ -162,8 +172,10 @@ public class HaplotypeEvaluator {
             && concordance(childPile, searchPileup).orElse(0.0)
                 >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE
             && TrioEvaluator.looksDenovo(
-                searchPileup, p1Piles.apply(searchPosition), p2Piles.apply(searchPosition))) {
-          otherDenovoPositions.add(searchPos);
+                searchPileup,
+                p1QueryPileups.get().get(searchPosition),
+                p2QueryPileups.get().get(searchPosition))) {
+          otherDenovoPositions.add(searchPosition.getPosition());
         }
       }
     }
