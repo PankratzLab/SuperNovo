@@ -56,6 +56,7 @@ public class TrioEvaluator {
   protected static final String SER_EXTENSION = ".DeNovoResultList.ser.gz";
   protected static final String VCF_EXTENSION = ".DeNovoResults.vcf.gz";
 
+  private static final int VCF_DN_MAX_WEIGHT = 4;
   private static final int READ_LENGTH = 150;
   private static final int MIN_DEPTH = 10;
   private static final int MIN_ALLELIC_DEPTH = 4;
@@ -121,7 +122,7 @@ public class TrioEvaluator {
         () -> perThreadReaders.getUnchecked(Thread.currentThread());
     long time = System.currentTimeMillis();
     App.LOG.info("Parsing variants from gvcf");
-    ImmutableSet<ReferencePosition> variantsToEval =
+    ImmutableSet<ReferencePosition> variantsToInclude =
         genomeBins(vcf)
             .parallel()
             .map(loc -> getVCFReader.get().query(loc).stream())
@@ -129,22 +130,55 @@ public class TrioEvaluator {
             .map(this::generatePosition)
             .filter(Optional::isPresent)
             .map(Optional::get)
+            .collect(ImmutableSet.toImmutableSet());
+    int prevResults = deNovoResults.size();
+    deNovoResults.keySet().retainAll(variantsToInclude);
+    App.LOG.info(
+        "Dropped "
+            + (prevResults - deNovoResults.size())
+            + " results (of "
+            + prevResults
+            + " total) from previously computed that are no longer retained from vcf");
+    ImmutableSet<ReferencePosition> variantsRemaining =
+        variantsToInclude
+            .stream()
             .filter(Predicates.not(deNovoResults::containsKey))
             .collect(ImmutableSet.toImmutableSet());
     App.LOG.info("Parsed variants in " + (System.currentTimeMillis() - time) + " seconds");
     perThreadReaders.asMap().values().forEach(VCFFileReader::close);
 
-    App.LOG.info("Evaluating " + variantsToEval.size() + " variants for de novo mutations");
+    App.LOG.info("Evaluating " + variantsRemaining.size() + " variants for de novo mutations");
     if (!deNovoResults.isEmpty()) {
       App.LOG.info(deNovoResults.size() + " variants previously evaluated");
     }
-    variantsToEval
-        .stream()
-        .parallel()
-        .map(r -> maybeLogProcessProgress(r, variantsToEval.size()))
-        .map(r -> ImmutableMap.of(r, evaluate(r)))
-        .forEach(deNovoResults::putAll);
-    App.LOG.info("Finished evluating " + variantsToEval.size() + " variants for de novo mutations");
+    Thread evaluateVariantsThreads =
+        new Thread(
+            () ->
+                variantsRemaining
+                    .stream()
+                    .parallel()
+                    .map(r -> ImmutableMap.of(r, evaluate(r)))
+                    .forEach(deNovoResults::putAll));
+    evaluateVariantsThreads.start();
+    long lastProgressLog = 0L;
+    while (evaluateVariantsThreads.isAlive()) {
+      if (System.currentTimeMillis() - lastProgressLog > 600000) {
+        App.LOG.info(
+            "Processed "
+                + deNovoResults.size()
+                + " variants (of "
+                + variantsRemaining.size()
+                + " total");
+      }
+      try {
+        Thread.sleep(60000);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    App.LOG.info(
+        "Finished evaluating " + variantsRemaining.size() + " variants for de novo mutations");
   }
 
   private VariantContext maybeLogParseProgress(VariantContext vc) {
@@ -157,14 +191,6 @@ public class TrioEvaluator {
     }
     contigLogCount.add(vc.getContig());
     return vc;
-  }
-
-  private ReferencePosition maybeLogProcessProgress(ReferencePosition rp, int totalToProcess) {
-    int processed = processedVariantsCount.incrementAndGet() - 1;
-    if (processed % 10 == 0) {
-      App.LOG.info("Processed " + processed + " variants (of " + totalToProcess + " total");
-    }
-    return rp;
   }
 
   public void reportDeNovos(File vcf, File output) throws IOException, ClassNotFoundException {
@@ -184,7 +210,7 @@ public class TrioEvaluator {
     if (chunkedSerOutput.exists()) {
       App.LOG.info("Previous chunked progress serialized output already exists, loading...");
       try {
-        deNovoResults = deserializeResults(serOutput);
+        deNovoResults = deserializeResults(chunkedSerOutput);
         App.LOG.info("Serialized output loaded");
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
@@ -279,6 +305,7 @@ public class TrioEvaluator {
   }
 
   private void serializeResults(File output) {
+    deNovoResults.size();
     try (ObjectOutputStream oos =
         new ObjectOutputStream(new GZIPOutputStream(new FileOutputStream(output)))) {
       oos.writeObject(deNovoResults);
@@ -323,19 +350,29 @@ public class TrioEvaluator {
 
   private boolean keepVariant(VariantContext vc) {
     Genotype geno = vc.getGenotype(childID);
-    return geno.getPloidy() == 1
-        || (geno.isHet() && !geno.isHetNonRef())
-            && geno.getAlleles().stream().mapToInt(Allele::length).allMatch(i -> i == 1);
+    return isSingleNonRef(geno) && !seenInParentVCF(vc);
+  }
+
+  private boolean isSingleNonRef(Genotype geno) {
+    return (geno.getPloidy() == 1 || (geno.isHet() && !geno.isHetNonRef()))
+        && geno.getAlleles().stream().mapToInt(Allele::length).allMatch(i -> i == 1);
+  }
+
+  private boolean seenInParentVCF(VariantContext vc) {
+    Allele altAllele = getPossibleDnAlt(vc);
+    for (String parentID : ImmutableList.of(parent1ID, parent2ID)) {
+      Genotype geno = vc.getGenotype(parentID);
+      int parentAlleleIndex = geno.getAlleles().indexOf(altAllele);
+      if (parentAlleleIndex >= 0 && geno.getAD()[parentAlleleIndex] > VCF_DN_MAX_WEIGHT) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private Optional<ReferencePosition> generatePosition(VariantContext vc) {
     Allele ref = vc.getReference();
-    Genotype geno = vc.getGenotype(childID);
-    Allele alt =
-        geno.getAlleles()
-            .stream()
-            .filter(Predicates.not(vc.getReference()::equals))
-            .collect(MoreCollectors.onlyElement());
+    Allele alt = getPossibleDnAlt(vc);
     try {
       return Optional.of(ReferencePosition.fromVariantContext(vc, ref, alt));
     } catch (IllegalArgumentException iae) {
@@ -343,6 +380,14 @@ public class TrioEvaluator {
           .error("Failed to generate ReferencePosition for variant " + vc, iae);
       return Optional.absent();
     }
+  }
+
+  private Allele getPossibleDnAlt(VariantContext vc) {
+    Genotype geno = vc.getGenotype(childID);
+    return geno.getAlleles()
+        .stream()
+        .filter(Predicates.not(vc.getReference()::equals))
+        .collect(MoreCollectors.onlyElement());
   }
 
   private Optional<DeNovoResult> evaluate(ReferencePosition pos) {
