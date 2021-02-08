@@ -12,75 +12,66 @@ public class App implements Runnable {
   public static final Logger LOG = LogManager.getLogger(App.class);
 
   @Option(
-    names = {"--vcf", "-v"},
-    paramLabel = "VCF",
-    description = "VCF with variants to query for de novo mutations",
-    required = true
-  )
+      names = {"--vcf", "-v"},
+      paramLabel = "VCF",
+      description = "VCF with variants to query for de novo mutations",
+      required = true)
   private File vcf;
 
   @Option(
-    names = {"--childBam", "--bam"},
-    paramLabel = "BAM",
-    description = "BAM of child",
-    required = true
-  )
+      names = {"--childBam", "--bam"},
+      paramLabel = "BAM",
+      description = "BAM of child",
+      required = true)
   private File childBam;
 
   @Option(
-    names = {"--childID", "--cID"},
-    paramLabel = "ID",
-    description = "Sample ID of child",
-    required = true
-  )
+      names = {"--childID", "--cID"},
+      paramLabel = "ID",
+      description = "Sample ID of child",
+      required = true)
   private String childID;
 
   @Option(
-    names = {"--parent1Bam", "--p1Bam"},
-    paramLabel = "BAM",
-    description = "BAM of parent 1",
-    required = true
-  )
+      names = {"--parent1Bam", "--p1Bam"},
+      paramLabel = "BAM",
+      description = "BAM of parent 1",
+      required = true)
   private File p1Bam;
 
   @Option(
-    names = {"--parent1ID", "--p1ID"},
-    paramLabel = "ID",
-    description = "Sample ID of parent 1",
-    required = true
-  )
+      names = {"--parent1ID", "--p1ID"},
+      paramLabel = "ID",
+      description = "Sample ID of parent 1",
+      required = true)
   private String p1ID;
 
   @Option(
-    names = {"--parent2Bam", "--p2Bam"},
-    paramLabel = "BAM",
-    description = "BAM of parent 2",
-    required = true
-  )
+      names = {"--parent2Bam", "--p2Bam"},
+      paramLabel = "BAM",
+      description = "BAM of parent 2",
+      required = true)
   private File p2Bam;
 
   @Option(
-    names = {"--parent2ID", "--p2ID"},
-    paramLabel = "ID",
-    description = "Sample ID of parent 2",
-    required = true
-  )
+      names = {"--parent2ID", "--p2ID"},
+      paramLabel = "ID",
+      description = "Sample ID of parent 2",
+      required = true)
   private String p2ID;
 
   @Option(
-    names = {"--genome", "--snpEffGenome"},
-    paramLabel = "GENOME",
-    description = "Genome build argument for snpeff",
-    required = true
-  )
+      names = {"--genome", "--snpEffGenome"},
+      paramLabel = "GENOME",
+      description = "Genome build argument for snpeff",
+      required = true)
   private String snpEffGenome;
 
   @Option(
-    names = {"--output", "-o"},
-    paramLabel = "FILE",
-    description = "Output file for parsed de novo variants",
-    required = true
-  )
+      names = {"--output", "-o"},
+      paramLabel = "FILE",
+      description = "Output file for parsed de novo variants",
+      required = true)
   private File output;
 
   public static void main(String[] args) {

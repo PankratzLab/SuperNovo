@@ -51,6 +51,4 @@ public abstract class AbstractPileAllele implements PileAllele {
     } else if (!alleleString.equals(other.alleleString)) return false;
     return true;
   }
-  
-  
 }

@@ -24,47 +24,41 @@ public class App implements Runnable {
   public static final Logger LOG = LogManager.getLogger(App.class);
 
   @Option(
-    names = {"--vcf", "-v"},
-    paramLabel = "VCF",
-    description = "gVCF with variants to query for allelic ratios",
-    required = true
-  )
+      names = {"--vcf", "-v"},
+      paramLabel = "VCF",
+      description = "gVCF with variants to query for allelic ratios",
+      required = true)
   private File vcf;
 
   @Option(
-    names = {"--bins", "-b"},
-    paramLabel = "n",
-    description = "Number of bins to use for allele rations (default: ${DEFAULT-VALUE})"
-  )
+      names = {"--bins", "-b"},
+      paramLabel = "n",
+      description = "Number of bins to use for allele rations (default: ${DEFAULT-VALUE})")
   private int bins = 100;
 
   @Option(
-    names = {"--minAllelicDepth", "-a"},
-    paramLabel = "n",
-    description = "Minimum allelic depth to count (default: ${DEFAULT-VALUE})"
-  )
+      names = {"--minAllelicDepth", "-a"},
+      paramLabel = "n",
+      description = "Minimum allelic depth to count (default: ${DEFAULT-VALUE})")
   private int minAllelicDepth = 3;
 
   @Option(
-    names = {"--minDepth", "-d"},
-    paramLabel = "n",
-    description = "Minimum total depth to count (default: ${DEFAULT-VALUE})"
-  )
+      names = {"--minDepth", "-d"},
+      paramLabel = "n",
+      description = "Minimum total depth to count (default: ${DEFAULT-VALUE})")
   private int minDepth = 20;
 
   @Option(
-    names = {"--threads", "-t"},
-    paramLabel = "n",
-    description = "Number of threads to use (default: ${DEFAULT-VALUE})"
-  )
+      names = {"--threads", "-t"},
+      paramLabel = "n",
+      description = "Number of threads to use (default: ${DEFAULT-VALUE})")
   private int threads = 4;
 
   @Option(
-    names = {"--output", "-o"},
-    paramLabel = "FILE",
-    description = "Output file for parsed allele ratio bins",
-    required = true
-  )
+      names = {"--output", "-o"},
+      paramLabel = "FILE",
+      description = "Output file for parsed allele ratio bins",
+      required = true)
   private File output;
 
   private AlleleRatio alleleRatio;
