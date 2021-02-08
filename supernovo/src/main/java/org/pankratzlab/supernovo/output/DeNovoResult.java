@@ -330,16 +330,19 @@ public class DeNovoResult implements OutputFields, Serializable {
   public final Sample p2;
   private final ReferencePosition pos;
   private final HaplotypeEvaluator.Result hapResults;
+  private final TrioEvaluator trioEvaluator;
   private final ImmutableList<Sample> parents;
 
   public DeNovoResult(
       ReferencePosition pos,
       HaplotypeEvaluator.Result hapResults,
+      TrioEvaluator trioEvaluator,
       Sample child,
       Sample p1,
       Sample p2) {
     this.pos = pos;
     this.hapResults = hapResults;
+    this.trioEvaluator = trioEvaluator;
     this.child = child;
     this.p1 = p1;
     this.p2 = p2;
@@ -351,7 +354,7 @@ public class DeNovoResult implements OutputFields, Serializable {
     altAllele = pos.getAltAllele();
     allele1 = child.getDepth().getA1();
     allele2 = child.getDepth().getA2();
-    dnAllele = TrioEvaluator.dnAllele(child.getPileup(), p1.getPileup(), p2.getPileup());
+    dnAllele = trioEvaluator.dnAllele(child.getPileup(), p1.getPileup(), p2.getPileup());
     dnIsRef = dnAllele.transform(refAllele::equals);
 
     if (hapResults.getConcordances().isEmpty()) meanHaplotypeConcordance = 1.0;
@@ -384,8 +387,8 @@ public class DeNovoResult implements OutputFields, Serializable {
   }
 
   private void setFlags() {
-    biallelicHeterozygote = TrioEvaluator.looksBiallelic(child.getPileup());
-    deNovo = TrioEvaluator.looksDenovo(child.getPileup(), p1.getPileup(), p2.getPileup());
+    biallelicHeterozygote = trioEvaluator.looksBiallelic(child.getPileup());
+    deNovo = trioEvaluator.looksDenovo(child.getPileup(), p1.getPileup(), p2.getPileup());
     if (!biallelicHeterozygote) nonSuperNovoReason = "Not biallelic heterozygote";
     else if (!deNovo) nonSuperNovoReason = "Not denovo";
     else if (Math.min(p1.weightedDepth, p2.weightedDepth) < MIN_PARENTAL_DEPTH)

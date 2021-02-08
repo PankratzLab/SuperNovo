@@ -116,19 +116,25 @@ public class HaplotypeEvaluator {
   private final PileupCache childPileups;
   private final PileupCache p1Piles;
   private final PileupCache p2Piles;
+  private final TrioEvaluator trioEvaluator;
   /**
    * @param child
    * @param p1
    * @param p2
    */
   public HaplotypeEvaluator(
-      Pileup childPile, PileupCache childPileups, PileupCache p1Piles, PileupCache p2Piles) {
+      Pileup childPile,
+      PileupCache childPileups,
+      PileupCache p1Piles,
+      PileupCache p2Piles,
+      TrioEvaluator trioEvaluator) {
     super();
     this.childPile = childPile;
     this.pos = childPile.getPosition();
     this.childPileups = childPileups;
     this.p1Piles = p1Piles;
     this.p2Piles = p2Piles;
+    this.trioEvaluator = trioEvaluator;
   }
 
   public Result haplotypeConcordance() {
@@ -155,23 +161,23 @@ public class HaplotypeEvaluator {
       if (searchPosition.equals(pos)) continue;
       Pileup searchPileup = queryEntry.getValue();
       if (searchPileup.getDepth().getBiAlleles().size() == 2) {
-        if (TrioEvaluator.looksVariant(searchPileup.getDepth())) {
+        if (trioEvaluator.looksVariant(searchPileup.getDepth())) {
           otherVariants++;
-          if (TrioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
+          if (trioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
             otherTriallelics++;
           } else {
             otherBiallelics++;
             concordance(childPile, searchPileup).ifPresent(concordances::add);
           }
         }
-        if (((TrioEvaluator.passesAllelicFrac(searchPileup.getDepth())
+        if (((trioEvaluator.passesAllelicFrac(searchPileup.getDepth())
                     && TrioEvaluator.passesAllelicDepth(
                         searchPileup.getDepth(), MIN_OTHER_DN_ALLELIC_DEPTH))
                 || TrioEvaluator.passesAllelicDepth(
                     searchPileup.getDepth(), OTHER_DN_ALLELIC_DEPTH_INDEPENDENT))
             && concordance(childPile, searchPileup).orElse(0.0)
                 >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE
-            && TrioEvaluator.looksDenovo(
+            && trioEvaluator.looksDenovo(
                 searchPileup,
                 p1QueryPileups.get().get(searchPosition),
                 p2QueryPileups.get().get(searchPosition))) {
