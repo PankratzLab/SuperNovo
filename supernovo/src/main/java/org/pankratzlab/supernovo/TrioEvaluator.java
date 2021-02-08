@@ -21,7 +21,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
-import org.apache.logging.log4j.LogManager;
 import org.pankratzlab.supernovo.output.DeNovoResult;
 import org.pankratzlab.supernovo.pileup.Depth;
 import org.pankratzlab.supernovo.pileup.Pileup;
@@ -287,7 +286,7 @@ public class TrioEvaluator {
         new ObjectOutputStream(new GZIPOutputStream(new FileOutputStream(output)))) {
       oos.writeObject(deNovoResults);
     } catch (IOException e) {
-      e.printStackTrace();
+      App.LOG.error(e);
     }
   }
 
@@ -353,8 +352,7 @@ public class TrioEvaluator {
     try {
       return Optional.of(ReferencePosition.fromVariantContext(vc, ref, alt));
     } catch (IllegalArgumentException iae) {
-      LogManager.getLogger(App.class)
-          .error("Failed to generate ReferencePosition for variant " + vc, iae);
+      App.LOG.error("Failed to generate ReferencePosition for variant " + vc, iae);
       return Optional.absent();
     }
   }
