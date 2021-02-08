@@ -15,7 +15,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -41,7 +40,6 @@ import com.google.common.collect.MoreCollectors;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.SamReader;
-import htsjdk.samtools.util.CloseableIterator;
 import htsjdk.samtools.util.Interval;
 import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.Allele;
@@ -57,14 +55,11 @@ public class TrioEvaluator {
   protected static final String VCF_EXTENSION = ".DeNovoResults.vcf.gz";
 
   private static final int VCF_DN_MAX_WEIGHT = 4;
-  private static final int READ_LENGTH = 150;
   private static final int MIN_DEPTH = 10;
   private static final int MIN_ALLELIC_DEPTH = 4;
   private static final double MIN_ALLELIC_FRAC = 0.1;
   private static final double MAX_MISCALL_RATIO = 0.05;
   private static final double MAX_MISCALL_WEIGHT = 1.0;
-  private static final CacheBuilder<Object, Object> PILEUP_CACHE_BUILDER =
-      CacheBuilder.newBuilder().maximumSize(READ_LENGTH * 2L);
 
   private final String childID;
   private final String parent1ID;
@@ -76,7 +71,6 @@ public class TrioEvaluator {
   private final PileupCache p2Pileups;
 
   private final Multiset<String> contigLogCount = ConcurrentHashMultiset.create();
-  private final AtomicInteger processedVariantsCount = new AtomicInteger(0);
   private final Function<File, VCFHeader> vcfHeaderCache =
       CacheBuilder.newBuilder()
           .softValues()
@@ -251,23 +245,6 @@ public class TrioEvaluator {
       resultsList.stream().findFirst().map(DeNovoResult::generateHeader).ifPresent(writer::println);
       resultsList.stream().map(DeNovoResult::generateLine).forEachOrdered(writer::println);
     }
-  }
-
-  private Stream<Stream<VariantContext>> binnedVCFReaders(File vcf) {
-    final int binSize = 100000;
-    return vcfHeaderCache
-        .apply(vcf)
-        .getContigLines()
-        .stream()
-        .map(VCFContigHeaderLine::getSAMSequenceRecord)
-        .flatMap(
-            r ->
-                IntStream.rangeClosed(0, r.getSequenceLength() / binSize)
-                    .mapToObj(
-                        i ->
-                            new VCFFileReader(vcf)
-                                .query(r.getSequenceName(), i * binSize + 1, (i + 1) * binSize)))
-        .map(CloseableIterator::stream);
   }
 
   private Stream<Locatable> genomeBins(File vcf) {
