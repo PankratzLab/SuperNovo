@@ -94,7 +94,7 @@ public class TrioEvaluator {
     Supplier<VCFFileReader> getVCFReader =
         () -> perThreadReaders.getUnchecked(Thread.currentThread());
     long time = System.currentTimeMillis();
-    App.LOG.info("Parsing variants from gvcf");
+    App.LOG.info("Parsing variants from vcf");
     ImmutableSet<ReferencePosition> variantsToInclude =
         genomeBins(vcf)
             .parallel()
@@ -117,7 +117,7 @@ public class TrioEvaluator {
             .stream()
             .filter(Predicates.not(deNovoResults::containsKey))
             .collect(ImmutableSet.toImmutableSet());
-    App.LOG.info("Parsed variants in " + (System.currentTimeMillis() - time) + " seconds");
+    App.LOG.info("Parsed variants in " + (1000 * (System.currentTimeMillis() - time)) + " seconds");
     perThreadReaders.asMap().values().forEach(VCFFileReader::close);
 
     App.LOG.info("Evaluating " + variantsRemaining.size() + " variants for de novo mutations");
