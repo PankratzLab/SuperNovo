@@ -11,6 +11,8 @@ public class App implements Runnable {
 
   public static final Logger LOG = LogManager.getLogger(App.class);
 
+  private static App APP = null;
+
   @Option(
       names = {"--vcf", "-v"},
       paramLabel = "VCF",
@@ -121,6 +123,15 @@ public class App implements Runnable {
               + "Variants with parental weighted depth for the putatively de novo allele  above this value will be assumed inherited.",
       defaultValue = "1.0")
   private double maxMiscallWeight = 1.0;
+
+  // Force the currently running App to always be statically available
+  private App() {
+    APP = this;
+  }
+
+  public static App getInstance() {
+    return APP;
+  }
 
   public static void main(String[] args) {
     CommandLine.run(new App(), args);
