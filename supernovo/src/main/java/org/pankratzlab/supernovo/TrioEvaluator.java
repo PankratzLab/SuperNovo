@@ -38,7 +38,6 @@ import com.google.common.collect.LinkedHashMultiset;
 import com.google.common.collect.MoreCollectors;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import htsjdk.samtools.SamReader;
 import htsjdk.samtools.util.Interval;
 import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.Allele;
@@ -52,8 +51,6 @@ public class TrioEvaluator {
 
   protected static final String SER_EXTENSION = ".DeNovoResultList.ser.gz";
   protected static final String VCF_EXTENSION = ".DeNovoResults.vcf.gz";
-
-  private final App app;
 
   private final PileupCache childPileups;
   private final PileupCache p1Pileups;
@@ -73,19 +70,11 @@ public class TrioEvaluator {
 
   private ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>> deNovoResults;
 
-  /**
-   * @param app.childBam {@link SamReader} of child to evluate for de novo variants
-   * @param app.p1Bam {@link SamReader} of one parent for child
-   * @param app.p1Bam {@link SamReader} of second parent for child
-   * @param app.snpEffGenome genome build argument to supply SnpEff
-   */
-  public TrioEvaluator(App app) {
+  public TrioEvaluator() {
     super();
-    this.app = app;
-
-    this.childPileups = new PileupCache(app.getChildBam());
-    this.p1Pileups = new PileupCache(app.getP1Bam());
-    this.p2Pileups = new PileupCache(app.getP1Bam());
+    this.childPileups = new PileupCache(App.getInstance().getChildBam());
+    this.p1Pileups = new PileupCache(App.getInstance().getP1Bam());
+    this.p2Pileups = new PileupCache(App.getInstance().getP1Bam());
   }
 
   private void generateResults(File vcf) {
@@ -220,7 +209,7 @@ public class TrioEvaluator {
         resultsList,
         vcfOutput,
         vcfHeaderCache.apply(vcf).getSequenceDictionary(),
-        app.getSnpEffGenome());
+        App.getInstance().getSnpEffGenome());
     serializeResults(serOutput);
     summarizeResults(resultsList, formSummarizedOutput(output));
     try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(output)))) {
@@ -308,7 +297,7 @@ public class TrioEvaluator {
   }
 
   private boolean keepVariant(VariantContext vc) {
-    Genotype geno = vc.getGenotype(app.getChildID());
+    Genotype geno = vc.getGenotype(App.getInstance().getChildID());
     return isSingleNonRef(geno) && !seenInParentVCF(vc);
   }
 
@@ -319,10 +308,12 @@ public class TrioEvaluator {
 
   private boolean seenInParentVCF(VariantContext vc) {
     Allele altAllele = getPossibleDnAlt(vc);
-    for (String parentID : ImmutableList.of(app.getP1ID(), app.getP2ID())) {
+    for (String parentID :
+        ImmutableList.of(App.getInstance().getP1ID(), App.getInstance().getP2ID())) {
       Genotype geno = vc.getGenotype(parentID);
       int parentAlleleIndex = geno.getAlleles().indexOf(altAllele);
-      if (parentAlleleIndex >= 0 && geno.getAD()[parentAlleleIndex] > app.getVcfMaxParentAD()) {
+      if (parentAlleleIndex >= 0
+          && geno.getAD()[parentAlleleIndex] > App.getInstance().getVcfMaxParentAD()) {
         return true;
       }
     }
@@ -341,7 +332,7 @@ public class TrioEvaluator {
   }
 
   private Allele getPossibleDnAlt(VariantContext vc) {
-    Genotype geno = vc.getGenotype(app.getChildID());
+    Genotype geno = vc.getGenotype(App.getInstance().getChildID());
     return geno.getAlleles()
         .stream()
         .filter(Predicates.not(vc.getReference()::equals))
@@ -356,27 +347,26 @@ public class TrioEvaluator {
               pos,
               new HaplotypeEvaluator(childPile, childPileups, p1Pileups, p2Pileups, this)
                   .haplotypeConcordance(),
-              this,
-              generateSample(app.getChildID(), pos, childPile, childPile),
-              generateSample(app.getP1ID(), pos, p1Pileups.get(pos), childPile),
-              generateSample(app.getP2ID(), pos, p2Pileups.get(pos), childPile)));
+              generateSample(App.getInstance().getChildID(), pos, childPile, childPile),
+              generateSample(App.getInstance().getP1ID(), pos, p1Pileups.get(pos), childPile),
+              generateSample(App.getInstance().getP2ID(), pos, p2Pileups.get(pos), childPile)));
     }
     return Optional.absent();
   }
 
-  public boolean looksBiallelic(Pileup pileup) {
+  public static boolean looksBiallelic(Pileup pileup) {
     return looksVariant(pileup.getDepth()) && !moreThanTwoViableAlleles(pileup);
   }
 
-  public boolean looksVariant(Depth depth) {
+  public static boolean looksVariant(Depth depth) {
     return depth.getBiAlleles().size() == 2
-        && depth.weightedBiallelicDepth() >= app.getMinDepth()
+        && depth.weightedBiallelicDepth() >= App.getInstance().getMinDepth()
         && passesAllelicFrac(depth)
-        && passesAllelicDepth(depth, app.getMinAllelicDepth());
+        && passesAllelicDepth(depth, App.getInstance().getMinAllelicDepth());
   }
 
-  public boolean passesAllelicFrac(Depth depth) {
-    return depth.weightedMinorAlleleFraction() >= app.getMinAllelicFrac();
+  public static boolean passesAllelicFrac(Depth depth) {
+    return depth.weightedMinorAlleleFraction() >= App.getInstance().getMinAllelicFrac();
   }
 
   public static boolean passesAllelicDepth(Depth depth, double minDepth) {
@@ -385,19 +375,20 @@ public class TrioEvaluator {
         .allMatch(d -> d >= minDepth);
   }
 
-  public boolean moreThanTwoViableAlleles(Pileup pileup) {
+  public static boolean moreThanTwoViableAlleles(Pileup pileup) {
     return possibleAlleles(pileup).size() > 2;
   }
 
-  private Set<PileAllele> possibleAlleles(Pileup pileup) {
+  private static Set<PileAllele> possibleAlleles(Pileup pileup) {
     return pileup
         .getBaseCounts()
         .entrySet()
         .stream()
         .filter(
             e ->
-                e.getCount() > app.getMaxMiscallWeight()
-                    || pileup.getBaseFractions().get(e.getElement()) > app.getMaxMiscallFrac())
+                e.getCount() > App.getInstance().getMaxMiscallWeight()
+                    || pileup.getBaseFractions().get(e.getElement())
+                        > App.getInstance().getMaxMiscallFrac())
         .map(Multiset.Entry::getElement)
         .collect(ImmutableSet.toImmutableSet());
   }
@@ -408,16 +399,17 @@ public class TrioEvaluator {
         id, pileup, pos, childPile.getDepth().getA1(), childPile.getDepth().getA2());
   }
 
-  public boolean looksDenovo(Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
+  public static boolean looksDenovo(Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
     return dnAllele(childPileup, p1Pileup, p2Pileup).isPresent();
   }
 
-  public Optional<PileAllele> dnAllele(Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
+  public static Optional<PileAllele> dnAllele(
+      Pileup childPileup, Pileup p1Pileup, Pileup p2Pileup) {
     List<Pileup> parentPileups = ImmutableList.of(p1Pileup, p2Pileup);
     Set<PileAllele> parentalAlleles =
         parentPileups
             .stream()
-            .map(this::possibleAlleles)
+            .map(pileup -> possibleAlleles(pileup))
             .flatMap(Set::stream)
             .collect(ImmutableSet.toImmutableSet());
     try {

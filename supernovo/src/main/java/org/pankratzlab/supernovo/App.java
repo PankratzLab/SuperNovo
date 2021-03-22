@@ -140,7 +140,7 @@ public class App implements Runnable {
   @Override
   public void run() {
     try {
-      new TrioEvaluator(this).reportDeNovos(vcf, getOutput());
+      new TrioEvaluator().reportDeNovos(vcf, getOutput());
     } catch (IOException | ClassNotFoundException e) {
       LOG.error("An IO error was encountered", e);
     }
