@@ -1,8 +1,9 @@
 package org.pankratzlab.supernovo;
 
+import java.io.Serializable;
 import htsjdk.samtools.SAMRecord;
 
-public interface PileAllele {
+public interface PileAllele extends Serializable {
 
   /**
    * @param record to test
@@ -14,6 +15,13 @@ public interface PileAllele {
   /**
    * @param record to test
    * @param readPos to query
+   * @return true if support for this {@link PileAllele} is based on a clipped portion of record
+   */
+  boolean clipped(SAMRecord record, int readPos);
+
+  /**
+   * @param record to test
+   * @param readPos to query
    * @return weighted depth for allele
    */
   double weightedDepth(SAMRecord record, int readPos);
@@ -21,4 +29,10 @@ public interface PileAllele {
   /** @return String representation of the allele */
   @Override
   String toString();
+
+  @Override
+  boolean equals(Object obj);
+
+  @Override
+  int hashCode();
 }

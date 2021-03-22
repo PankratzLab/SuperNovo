@@ -5,6 +5,9 @@ import htsjdk.samtools.SAMRecord;
 
 public abstract class AbstractPileAllele implements PileAllele {
 
+  /** */
+  private static final long serialVersionUID = 1L;
+
   private final String alleleString;
 
   /** @param alleleString */

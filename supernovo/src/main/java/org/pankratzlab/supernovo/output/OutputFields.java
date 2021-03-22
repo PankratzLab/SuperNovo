@@ -1,10 +1,11 @@
 package org.pankratzlab.supernovo.output;
 
 import java.lang.reflect.Field;
-import java.util.Optional;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.pankratzlab.supernovo.App;
+import com.google.common.base.Optional;
 
 /**
  * Interface to specify and allow a class's public fields to be used as output columns instead of
@@ -44,26 +45,37 @@ public interface OutputFields {
       return ((OutputFields) value).fieldValues();
     }
     if (value instanceof Optional<?>) {
-      return Stream.of(((Optional<?>) value).map(Object::toString).orElse(Constants.MISSING));
+      return Stream.of(((Optional<?>) value).transform(Object::toString).or(Constants.MISSING));
+    }
+    if (value == null) {
+      return Stream.of(Constants.MISSING);
     }
     return Stream.of(value.toString());
   }
 
-  static String generateHeader(Class<? extends OutputFields> outputClass) {
-    return fieldHeaders(outputClass).collect(Constants.JOIN_COLLECTOR);
+  default String generateHeader() {
+    return fieldHeaders().collect(Constants.JOIN_COLLECTOR);
   }
 
-  static Stream<String> fieldHeaders(Class<? extends OutputFields> outputClass) {
-    return Stream.of(outputClass.getFields()).flatMap(OutputFields::recurseHeaders);
+  default Stream<String> fieldHeaders() {
+    return Stream.of(this.getClass().getFields()).flatMap(this::recurseHeaders);
   }
 
-  @SuppressWarnings("unchecked")
-  static Stream<String> recurseHeaders(Field field) {
+  default Stream<String> recurseHeaders(Field field) {
     Class<?> fieldType = field.getType();
     if (OutputFields.class.isAssignableFrom(fieldType)) {
-      final String prefix = field.getName() + "_";
-      return fieldHeaders((Class<? extends OutputFields>) fieldType).map(h -> prefix + h);
+      try {
+        return prefixHeaders(field, ((OutputFields) field.get(this)).fieldHeaders());
+      } catch (IllegalArgumentException | IllegalAccessException e) {
+        App.LOG.error(e);
+      }
     }
+
     return Stream.of(field.getName());
+  }
+
+  static Stream<String> prefixHeaders(Field field, Stream<? extends Object> headers) {
+    final String prefix = field.getName() + "_";
+    return headers.map(Object::toString).map(h -> prefix + h);
   }
 }

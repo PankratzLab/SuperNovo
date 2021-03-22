@@ -1,12 +1,16 @@
 package org.pankratzlab.supernovo;
 
-import java.util.Optional;
+import java.io.Serializable;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Bytes;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext;
 
-public class ReferencePosition extends GenomePosition {
+public class ReferencePosition extends GenomePosition implements Serializable {
+
+  /** */
+  private static final long serialVersionUID = 1L;
 
   private final PileAllele refAllele;
   private final Optional<PileAllele> altAllele;
@@ -42,7 +46,7 @@ public class ReferencePosition extends GenomePosition {
    * @param altAllele
    */
   public ReferencePosition(String contig, int position, PileAllele refAllele) {
-    this(contig, position, refAllele, Optional.empty());
+    this(contig, position, refAllele, Optional.absent());
   }
 
   public static ReferencePosition fromVariantContext(VariantContext vc, Allele ref, Allele alt) {
@@ -51,10 +55,10 @@ public class ReferencePosition extends GenomePosition {
     if (ref.length() == 1 && alt.length() == 1) {
       refAllele = SNPAllele.of(ref.getBases()[0]);
       altAllele = SNPAllele.of(alt.getBases()[0]);
-    } else if (ref.length() == 1) {
+    } else if (ref.length() == 1 && alt.length() > 1) {
       altAllele = generateInsertionAllele(alt, ref);
       refAllele = ((InsertionAllele) altAllele).getNonInsertionAllele();
-    } else if (alt.length() == 1) {
+    } else if (alt.length() == 1 && ref.length() > 1) {
       refAllele = generateInsertionAllele(ref, alt);
       altAllele = ((InsertionAllele) refAllele).getNonInsertionAllele();
     } else throw new IllegalArgumentException("Only SNPs and Indels are supported");
@@ -64,7 +68,12 @@ public class ReferencePosition extends GenomePosition {
   private static InsertionAllele generateInsertionAllele(Allele ins, Allele del) {
     byte preBase = del.getBases()[0];
     if (preBase != ins.getBases()[0])
-      throw new IllegalArgumentException("Indels must match on first base");
+      throw new IllegalArgumentException(
+          "Indels must match on first base (ins: "
+              + ins.toString()
+              + ", del: "
+              + del.toString()
+              + ")");
     return new InsertionAllele(
         SNPAllele.of(preBase),
         ImmutableList.copyOf(Bytes.asList(ins.getBases()).subList(1, ins.getBases().length)));

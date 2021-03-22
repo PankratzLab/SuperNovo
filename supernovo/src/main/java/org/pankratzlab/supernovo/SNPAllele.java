@@ -7,6 +7,9 @@ import htsjdk.samtools.SAMRecord;
 
 public class SNPAllele extends AbstractPileAllele {
 
+  /** */
+  private static final long serialVersionUID = 1L;
+
   private static LoadingCache<Byte, SNPAllele> cache =
       CacheBuilder.newBuilder().softValues().build(CacheLoader.from(SNPAllele::new));
 
@@ -30,6 +33,11 @@ public class SNPAllele extends AbstractPileAllele {
   @Override
   public boolean supported(SAMRecord record, int readPos) {
     return readPos != -1 && record.getReadBases()[readPos] == base;
+  }
+
+  @Override
+  public boolean clipped(SAMRecord record, int readPos) {
+    return record.getReferencePositionAtReadPosition(readPos) != 0;
   }
 
   @Override

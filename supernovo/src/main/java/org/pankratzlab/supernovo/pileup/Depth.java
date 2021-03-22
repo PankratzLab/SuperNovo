@@ -1,13 +1,17 @@
 package org.pankratzlab.supernovo.pileup;
 
+import java.io.Serializable;
 import java.util.Iterator;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import org.pankratzlab.supernovo.PileAllele;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
-public class Depth {
+public class Depth implements Serializable {
+
+  /** */
+  private static final long serialVersionUID = 1L;
 
   public enum Allele {
     A1(Depth::getA1),
@@ -35,11 +39,11 @@ public class Depth {
     super();
     this.pileup = pileup;
     Iterator<PileAllele> alleleIter = pileup.getWeightedBaseCounts().keySet().iterator();
-    a1 = Optional.ofNullable(alleleIter.hasNext() ? alleleIter.next() : null);
-    a2 = Optional.ofNullable(alleleIter.hasNext() ? alleleIter.next() : null);
+    a1 = Optional.fromNullable(alleleIter.hasNext() ? alleleIter.next() : null);
+    a2 = Optional.fromNullable(alleleIter.hasNext() ? alleleIter.next() : null);
     ImmutableSet.Builder<PileAllele> allelesBuilder = ImmutableSet.builderWithExpectedSize(2);
-    a1.ifPresent(allelesBuilder::add);
-    a2.ifPresent(allelesBuilder::add);
+    a1.toJavaUtil().ifPresent(allelesBuilder::add);
+    a2.toJavaUtil().ifPresent(allelesBuilder::add);
     biAlleles = allelesBuilder.build();
   }
 
@@ -57,6 +61,14 @@ public class Depth {
 
   public int rawTotalDepth() {
     return pileup.getBaseCounts().size();
+  }
+
+  public double rawMinorAlleleFraction() {
+    return biAlleles.stream().mapToDouble(pileup.getBaseFractions()::get).min().orElse(0.0);
+  }
+
+  public double weightedMinorAlleleFraction() {
+    return biAlleles.stream().mapToDouble(pileup.getWeightedBaseFractions()::get).min().orElse(0.0);
   }
 
   /** @return the a1 */
@@ -81,8 +93,8 @@ public class Depth {
   public double allelicWeightedDepth(Allele allele) {
     return allele
         .getAllele(this)
-        .map(this::allelicWeightedDepth)
-        .orElse(Double.valueOf(0))
+        .transform(this::allelicWeightedDepth)
+        .or(Double.valueOf(0))
         .doubleValue();
   }
 
@@ -91,10 +103,14 @@ public class Depth {
   }
 
   public int allelicRawDepth(Allele allele) {
-    return allele.getAllele(this).map(this::allelicRawDepth).orElse(Integer.valueOf(0)).intValue();
+    return allele
+        .getAllele(this)
+        .transform(this::allelicRawDepth)
+        .or(Integer.valueOf(0))
+        .intValue();
   }
 
   public ImmutableSet<Integer> allelicRecords(Allele allele) {
-    return allele.getAllele(this).map(pileup.getRecordsByBase()::get).orElse(ImmutableSet.of());
+    return allele.getAllele(this).transform(pileup.getRecordsByBase()::get).or(ImmutableSet.of());
   }
 }
