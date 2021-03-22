@@ -278,22 +278,11 @@ public class DeNovoResult implements OutputFields, Serializable {
     }
   }
 
-  private static final int MIN_PARENTAL_DEPTH = 10;
-
-  private static final int MAX_PARENTAL_ALLELIC_DEPTH = 1;
-
-  private static final double MAX_PARENTAL_ALLELIC_FRAC = 0.5;
-
   private static final String NO_NON_SUPERNOVO_REASON = ".";
 
-  private static final String SNP_EFF_JAR = "/home/pankrat2/public/bin/snpEff/snpEff.jar";
   private static final String SNPEFF_ANN_FIELD = "ANN";
   private static final String SNPEFF_ANN_DELIM = "[\\s]?\\|[\\s]?";
-  private static final String SNPEFF_GENE = "Gene_Name";
-  private static final String SNPEFF_ANNO = "Annotation";
-  private static final String SNPEFF_IMPACT = "Annotation_Impact";
 
-  private static final String ANNOVAR_DIR = "/home/pankrat2/public/bin/ANNOVAR/annovar/";
   private static final String ANNOVAR_TABLE_COMMAND = "table_annovar.pl";
 
   public final String chr;
@@ -320,7 +309,6 @@ public class DeNovoResult implements OutputFields, Serializable {
   public String nonSuperNovoReason;
   public final double meanHaplotypeConcordance;
   public final int overlappingReadsHetCount;
-  public static final double MIN_HAPLOTYPE_CONCORDANCE = 0.75;
   public final int overlappingReadsDiscordantHetCount;
   public final int overlappingReadsAdjacentDeNovoCounts;
   public final int overlappingReadsIndependentDeNovoCount;
@@ -370,7 +358,7 @@ public class DeNovoResult implements OutputFields, Serializable {
                 .getConcordances()
                 .stream()
                 .mapToDouble(Double::valueOf)
-                .filter(d -> d < MIN_HAPLOTYPE_CONCORDANCE)
+                .filter(d -> d < App.getInstance().getMinHaplotypeConcordance())
                 .count();
     overlappingReadsAdjacentDeNovoCounts = hapResults.getAdjacentDeNovos();
     overlappingReadsIndependentDeNovoCount = hapResults.getOtherDeNovos();
@@ -388,11 +376,11 @@ public class DeNovoResult implements OutputFields, Serializable {
     deNovo = TrioEvaluator.looksDenovo(child.getPileup(), p1.getPileup(), p2.getPileup());
     if (!biallelicHeterozygote) nonSuperNovoReason = "Not biallelic heterozygote";
     else if (!deNovo) nonSuperNovoReason = "Not denovo";
-    else if (Math.min(p1.weightedDepth, p2.weightedDepth) < MIN_PARENTAL_DEPTH)
-      nonSuperNovoReason = "Parental weighted depth < " + MIN_PARENTAL_DEPTH;
+    else if (Math.min(p1.weightedDepth, p2.weightedDepth) < App.getInstance().getMinParentalDepth())
+      nonSuperNovoReason = "Parental weighted depth < " + App.getInstance().getMinParentalDepth();
     else if (hapResults.getOtherDeNovos() != 0) nonSuperNovoReason = "Other denovos in region";
-    else if (meanHaplotypeConcordance < MIN_HAPLOTYPE_CONCORDANCE)
-      nonSuperNovoReason = "Haplotype Concordance < " + MIN_HAPLOTYPE_CONCORDANCE;
+    else if (meanHaplotypeConcordance < App.getInstance().getMinHaplotypeConcordance())
+      nonSuperNovoReason = "Haplotype Concordance < " + App.getInstance().getMinHaplotypeConcordance();
     else if (hapResults.getOtherTriallelics() != 0) nonSuperNovoReason = "Triallelics in region";
     else nonSuperNovoReason = NO_NON_SUPERNOVO_REASON;
     superNovo = nonSuperNovoReason.equals(NO_NON_SUPERNOVO_REASON);
@@ -424,7 +412,9 @@ public class DeNovoResult implements OutputFields, Serializable {
   private void setAnnos(VariantContext annotatedVC, Map<String, Integer> fieldIndices) {
     if (chr.equals(annotatedVC.getContig()) && position == annotatedVC.getStart()) {
       String[] annFields =
-          annotatedVC.getAttributeAsString(SNPEFF_ANN_FIELD, "").split(SNPEFF_ANN_DELIM);
+          annotatedVC
+              .getAttributeAsString(DeNovoResult.SNPEFF_ANN_FIELD, "")
+              .split(SNPEFF_ANN_DELIM);
       if (annFields.length < 4) {
         App.LOG.warn("Skipping annotation of variant " + annotatedVC.toString());
       } else {
@@ -457,7 +447,7 @@ public class DeNovoResult implements OutputFields, Serializable {
             .add("java")
             .add("-Xmx8G")
             .add("-jar")
-            .add(SNP_EFF_JAR)
+            .add(App.getInstance().getSnpEffJar())
             .add("eff")
             .add(snpEffGenome)
             .add("-")
@@ -474,7 +464,10 @@ public class DeNovoResult implements OutputFields, Serializable {
                         .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
                   App.LOG.info(vcfIter.getHeader().toString());
                   String annDescrip =
-                      vcfIter.getHeader().getInfoHeaderLine(SNPEFF_ANN_FIELD).getDescription();
+                      vcfIter
+                          .getHeader()
+                          .getInfoHeaderLine(DeNovoResult.SNPEFF_ANN_FIELD)
+                          .getDescription();
                   String[] annHeader =
                       annDescrip
                           .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
@@ -538,9 +531,9 @@ public class DeNovoResult implements OutputFields, Serializable {
     App.LOG.info("Running annovar");
     List<String> annovarCmd =
         ImmutableList.of(
-            ANNOVAR_DIR + ANNOVAR_TABLE_COMMAND,
+            App.getInstance().getAnnovarDir() + ANNOVAR_TABLE_COMMAND,
             intermediateVCFOutput.getPath(),
-            ANNOVAR_DIR + "humandb/",
+            App.getInstance().getAnnovarDir() + "humandb/",
             "-buildver",
             snpEffGenome,
             "-out",

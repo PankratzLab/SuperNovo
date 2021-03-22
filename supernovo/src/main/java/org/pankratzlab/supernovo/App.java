@@ -107,13 +107,36 @@ public class App implements Runnable {
   private double minAllelicFrac;
 
   @Option(
+      names = {"--minParentalDepth"},
+      paramLabel = "DEPTH",
+      description = "Minimum parental weighted depth to consider a de novo variant supernovo",
+      defaultValue = "10")
+  private int minParentalDepth;
+
+  @Option(
+      names = {"--minOtherDNAllelicDepth"},
+      paramLabel = "DEPTH",
+      description =
+          "Minimum allelic depth to count a local variant in the other DNs in region count",
+      defaultValue = "1.5")
+  private double minOtherDNAllelicDepth;
+
+  @Option(
+      names = {"--minOtherDNAllelicDepthIndependent"},
+      paramLabel = "DEPTH",
+      description =
+          "Minimum allelic depth to count a local variant in the other DNs in region count, if it fails minAllelicFrac",
+      defaultValue = "3.0")
+  private double minOtherDNAllelicDepthIndependent;
+
+  @Option(
       names = {"--maxMiscallFrac"},
       paramLabel = "RATIO",
       description =
           "Maximum allelic fraction in parents to consider as miscalled bases. "
               + "Variants with parental allelic fraction for the putatively de novo allele above this value will be assumed inherited.",
       defaultValue = "0.05")
-  private double maxMiscallFrac = 0.05;
+  private double maxMiscallFrac;
 
   @Option(
       names = {"--maxMiscallWeight"},
@@ -122,7 +145,41 @@ public class App implements Runnable {
           "Maximum weighted depth in parents to consider as miscalled bases. "
               + "Variants with parental weighted depth for the putatively de novo allele  above this value will be assumed inherited.",
       defaultValue = "1.0")
-  private double maxMiscallWeight = 1.0;
+  private double maxMiscallWeight;
+
+  @Option(
+      names = {"--minHaplotypeConcordance"},
+      paramLabel = "CONORDANCE",
+      description =
+          "Minimum concordance with inherited variant haplotypes in the region. "
+              + "Concordance is defined as the ratio of calls for alleles of local variants that "
+              + "are concordant with the most likely haplotype of the De Novo variant to the "
+              + "total number of calls for local variants on overlapping reads",
+      defaultValue = "0.75")
+  private double minHaplotypeConcordance;
+
+  @Option(
+      names = {"--haplotypeSearchDistance"},
+      paramLabel = "DIST",
+      description =
+          "Distance to search up and down stream for variants on reads that overlap a potential De Novo variant. "
+              + "Typically, this should be set to your read length (or greater for a more exhaustive search.)",
+      defaultValue = "150")
+  private int haplotypeSearchDistance;
+
+  @Option(
+      names = {"--annovarDir", "-a"},
+      paramLabel = "DIR",
+      description = "Directory where annovar is located",
+      required = true)
+  private String annovarDir;
+
+  @Option(
+      names = {"--snpEff", "-s"},
+      paramLabel = "JAR",
+      description = "Path to snpeff jar",
+      required = true)
+  private String snpEffJar;
 
   // Force the currently running App to always be statically available
   private App() {
@@ -214,5 +271,40 @@ public class App implements Runnable {
   /** @return the maxMiscallWeight */
   double getMaxMiscallWeight() {
     return maxMiscallWeight;
+  }
+
+  /** @return the minParentalDepth */
+  public int getMinParentalDepth() {
+    return minParentalDepth;
+  }
+
+  /** @return the minOtherDNAllelicDepth */
+  double getMinOtherDNAllelicDepth() {
+    return minOtherDNAllelicDepth;
+  }
+
+  /** @return the minOtherDNAllelicDepthIndependent */
+  double getMinOtherDNAllelicDepthIndependent() {
+    return minOtherDNAllelicDepthIndependent;
+  }
+
+  /** @return the minHaplotypeConcordance */
+  public double getMinHaplotypeConcordance() {
+    return minHaplotypeConcordance;
+  }
+
+  /** @return the annovarDir */
+  public String getAnnovarDir() {
+    return annovarDir;
+  }
+
+  /** @return the snpEffJar */
+  public String getSnpEffJar() {
+    return snpEffJar;
+  }
+
+  /** @return the haplotypeSearchDistance */
+  public int getHaplotypeSearchDistance() {
+    return haplotypeSearchDistance;
   }
 }

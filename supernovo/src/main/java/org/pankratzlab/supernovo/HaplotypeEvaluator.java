@@ -7,7 +7,6 @@ import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.pankratzlab.supernovo.output.DeNovoResult;
 import org.pankratzlab.supernovo.pileup.Depth.Allele;
 import org.pankratzlab.supernovo.pileup.Pileup;
 import org.pankratzlab.supernovo.pileup.PileupCache;
@@ -107,10 +106,6 @@ public class HaplotypeEvaluator {
     }
   }
 
-  public static final int HAPLOTYPE_SEARCH_DISTANCE = 150;
-  private static final double MIN_OTHER_DN_ALLELIC_DEPTH = 1.5;
-  private static final double OTHER_DN_ALLELIC_DEPTH_INDEPENDENT = 3.0;
-
   private final Pileup childPile;
   private final GenomePosition pos;
   private final PileupCache childPileups;
@@ -138,8 +133,8 @@ public class HaplotypeEvaluator {
   }
 
   public Result haplotypeConcordance() {
-    int startSearch = Integer.max(0, pos.getPosition() - HAPLOTYPE_SEARCH_DISTANCE);
-    int stopSearch = pos.getPosition() + HAPLOTYPE_SEARCH_DISTANCE;
+    int startSearch = Integer.max(0, pos.getPosition() - App.getInstance().getHaplotypeSearchDistance());
+    int stopSearch = pos.getPosition() + App.getInstance().getHaplotypeSearchDistance();
 
     Set<Integer> otherDenovoPositions = Sets.newHashSet();
     int otherTriallelics = 0;
@@ -172,11 +167,12 @@ public class HaplotypeEvaluator {
         }
         if (((trioEvaluator.passesAllelicFrac(searchPileup.getDepth())
                     && TrioEvaluator.passesAllelicDepth(
-                        searchPileup.getDepth(), MIN_OTHER_DN_ALLELIC_DEPTH))
+                        searchPileup.getDepth(), App.getInstance().getMinOtherDNAllelicDepth()))
                 || TrioEvaluator.passesAllelicDepth(
-                    searchPileup.getDepth(), OTHER_DN_ALLELIC_DEPTH_INDEPENDENT))
+                    searchPileup.getDepth(),
+                    App.getInstance().getMinOtherDNAllelicDepthIndependent()))
             && concordance(childPile, searchPileup).orElse(0.0)
-                >= DeNovoResult.MIN_HAPLOTYPE_CONCORDANCE
+                >= App.getInstance().getMinHaplotypeConcordance()
             && trioEvaluator.looksDenovo(
                 searchPileup,
                 p1QueryPileups.get().get(searchPosition),
