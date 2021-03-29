@@ -63,6 +63,20 @@ public class App implements Runnable {
   private String p2ID;
 
   @Option(
+      names = {"--annovarDir", "-a"},
+      paramLabel = "DIR",
+      description = "Directory where annovar is located",
+      required = true)
+  private String annovarDir;
+
+  @Option(
+      names = {"--snpEff", "-s"},
+      paramLabel = "JAR",
+      description = "Path to snpeff jar",
+      required = true)
+  private String snpEffJar;
+
+  @Option(
       names = {"--genome", "--snpEffGenome"},
       paramLabel = "GENOME",
       description = "Genome build argument for snpeff",
@@ -166,20 +180,6 @@ public class App implements Runnable {
               + "Typically, this should be set to your read length (or greater for a more exhaustive search.)",
       defaultValue = "150")
   private int haplotypeSearchDistance;
-
-  @Option(
-      names = {"--annovarDir", "-a"},
-      paramLabel = "DIR",
-      description = "Directory where annovar is located",
-      required = true)
-  private String annovarDir;
-
-  @Option(
-      names = {"--snpEff", "-s"},
-      paramLabel = "JAR",
-      description = "Path to snpeff jar",
-      required = true)
-  private String snpEffJar;
 
   // Force the currently running App to always be statically available
   private App() {
