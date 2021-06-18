@@ -4,7 +4,9 @@ import java.io.File;
 import java.io.IOException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import com.google.common.base.Optional;
 import picocli.CommandLine;
+import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Option;
 
 public class App implements Runnable {
@@ -16,7 +18,7 @@ public class App implements Runnable {
   @Option(
       names = {"--vcf", "-v"},
       paramLabel = "VCF",
-      description = "VCF with variants to query for de novo mutations",
+      description = "VCF with variants to query",
       required = true)
   private File vcf;
 
@@ -34,52 +36,68 @@ public class App implements Runnable {
       required = true)
   private String childID;
 
-  @Option(
-      names = {"--parent1Bam", "--p1Bam"},
-      paramLabel = "BAM",
-      description = "BAM of parent 1",
-      required = true)
-  private File p1Bam;
+  @ArgGroup(exclusive = true, multiplicity = "1")
+  private TrioOrSolo trioOrSolo = new TrioOrSolo();
 
-  @Option(
-      names = {"--parent1ID", "--p1ID"},
-      paramLabel = "ID",
-      description = "Sample ID of parent 1",
-      required = true)
-  private String p1ID;
+  public static class TrioOrSolo {
+    @ArgGroup(exclusive = false, multiplicity = "0..1")
+    public Parents parents;
 
-  @Option(
-      names = {"--parent2Bam", "--p2Bam"},
-      paramLabel = "BAM",
-      description = "BAM of parent 2",
-      required = true)
-  private File p2Bam;
+    @Option(
+        names = {"--solo", "-1"},
+        description =
+            "Run analysis on a single sample, otherwise must include parental information for Trio analysis")
+    public boolean solo;
+  }
 
-  @Option(
-      names = {"--parent2ID", "--p2ID"},
-      paramLabel = "ID",
-      description = "Sample ID of parent 2",
-      required = true)
-  private String p2ID;
+  static class Parents {
+    @Option(
+        names = {"--parent1Bam", "--p1Bam"},
+        paramLabel = "BAM",
+        description = "BAM of parent 1",
+        required = true)
+    public File p1Bam;
+
+    @Option(
+        names = {"--parent1ID", "--p1ID"},
+        paramLabel = "ID",
+        description = "Sample ID of parent 1",
+        required = true)
+    public String p1ID;
+
+    @Option(
+        names = {"--parent2Bam", "--p2Bam"},
+        paramLabel = "BAM",
+        description = "BAM of parent 2",
+        required = true)
+    public File p2Bam;
+
+    @Option(
+        names = {"--parent2ID", "--p2ID"},
+        paramLabel = "ID",
+        description = "Sample ID of parent 2",
+        required = true)
+    public String p2ID;
+  }
 
   @Option(
       names = {"--annovarDir", "-a"},
       paramLabel = "DIR",
       description = "Directory where annovar is located",
-      required = true)
+      required = false)
   private String annovarDir;
 
   @Option(
       names = {"--snpEff", "-s"},
       paramLabel = "JAR",
       description = "Path to snpeff jar",
-      required = true)
+      required = false)
   private String snpEffJar;
 
   @Option(
       names = {"--genome", "--snpEffGenome"},
       paramLabel = "GENOME",
-      description = "Genome build argument for snpeff",
+      description = "Genome build argument for snpeff/annovar",
       required = true)
   private String snpEffGenome;
 
@@ -191,13 +209,19 @@ public class App implements Runnable {
   }
 
   public static void main(String[] args) {
-    CommandLine.run(new App(), args);
+    new CommandLine(new App()).execute(args);
   }
 
   @Override
   public void run() {
     try {
-      new TrioEvaluator().reportDeNovos(vcf, getOutput());
+      final Evaluator eval;
+      if (trioOrSolo.solo) {
+        eval = new VariantEvaluator(childBam);
+      } else {
+        eval = new TrioEvaluator(childBam, trioOrSolo.parents.p1Bam, trioOrSolo.parents.p2Bam);
+      }
+      eval.run(vcf, getOutput());
     } catch (IOException | ClassNotFoundException e) {
       LOG.error("An IO error was encountered", e);
     }
@@ -215,27 +239,22 @@ public class App implements Runnable {
 
   /** @return the p1Bam */
   File getP1Bam() {
-    return p1Bam;
+    return trioOrSolo.parents.p1Bam;
   }
 
   /** @return the p1ID */
   String getP1ID() {
-    return p1ID;
+    return trioOrSolo.parents.p1ID;
   }
 
   /** @return the p2Bam */
   File getP2Bam() {
-    return p2Bam;
+    return trioOrSolo.parents.p2Bam;
   }
 
   /** @return the p2ID */
   String getP2ID() {
-    return p2ID;
-  }
-
-  /** @return the snpEffGenome */
-  String getSnpEffGenome() {
-    return snpEffGenome;
+    return trioOrSolo.parents.p2ID;
   }
 
   /** @return the output */
@@ -294,13 +313,18 @@ public class App implements Runnable {
   }
 
   /** @return the annovarDir */
-  public String getAnnovarDir() {
-    return annovarDir;
+  public Optional<String> getAnnovarDir() {
+    return Optional.fromNullable(annovarDir);
   }
 
   /** @return the snpEffJar */
-  public String getSnpEffJar() {
-    return snpEffJar;
+  public Optional<String> getSnpEffJar() {
+    return Optional.fromNullable(snpEffJar);
+  }
+
+  /** @return the snpEffGenome */
+  public String getGenome() {
+    return snpEffGenome;
   }
 
   /** @return the haplotypeSearchDistance */

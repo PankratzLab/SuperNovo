@@ -143,6 +143,11 @@ public class DeNovoResult implements OutputFields, Serializable {
       return pileup;
     }
 
+    /** @return the weightedDepth */
+    double getWeightedDepth() {
+      return weightedDepth;
+    }
+
     @Override
     public int hashCode() {
       final int prime = 31;
@@ -314,8 +319,8 @@ public class DeNovoResult implements OutputFields, Serializable {
   public final int overlappingReadsIndependentDeNovoCount;
   public final int overlapingReadsThirdAlleleCount;
   public final Sample child;
-  public final Sample p1;
-  public final Sample p2;
+  public final Optional<Sample> p1;
+  public final Optional<Sample> p2;
   private final ReferencePosition pos;
   private final HaplotypeEvaluator.Result hapResults;
   private final ImmutableList<Sample> parents;
@@ -326,12 +331,29 @@ public class DeNovoResult implements OutputFields, Serializable {
       Sample child,
       Sample p1,
       Sample p2) {
+    this(pos, hapResults, child, Optional.of(p1), Optional.of(p2));
+  }
+
+  public DeNovoResult(ReferencePosition pos, HaplotypeEvaluator.Result hapResults, Sample child) {
+    this(pos, hapResults, child, Optional.absent(), Optional.absent());
+  }
+
+  private DeNovoResult(
+      ReferencePosition pos,
+      HaplotypeEvaluator.Result hapResults,
+      Sample child,
+      Optional<Sample> p1,
+      Optional<Sample> p2) {
     this.pos = pos;
     this.hapResults = hapResults;
     this.child = child;
     this.p1 = p1;
     this.p2 = p2;
-    this.parents = ImmutableList.of(p1, p2);
+    this.parents =
+        Stream.of(p1, p2)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(ImmutableList.toImmutableList());
 
     position = pos.getPosition();
     chr = pos.getContig();
@@ -339,7 +361,9 @@ public class DeNovoResult implements OutputFields, Serializable {
     altAllele = pos.getAltAllele();
     allele1 = child.getDepth().getA1();
     allele2 = child.getDepth().getA2();
-    dnAllele = TrioEvaluator.dnAllele(child.getPileup(), p1.getPileup(), p2.getPileup());
+    dnAllele =
+        TrioEvaluator.dnAllele(
+            child.getPileup(), p1.transform(Sample::getPileup), p2.transform(Sample::getPileup));
     dnIsRef = dnAllele.transform(refAllele::equals);
 
     if (hapResults.getConcordances().isEmpty()) meanHaplotypeConcordance = 1.0;
@@ -373,14 +397,21 @@ public class DeNovoResult implements OutputFields, Serializable {
 
   private void setFlags() {
     biallelicHeterozygote = TrioEvaluator.looksBiallelic(child.getPileup());
-    deNovo = TrioEvaluator.looksDenovo(child.getPileup(), p1.getPileup(), p2.getPileup());
+    deNovo =
+        TrioEvaluator.looksDenovo(
+            child.getPileup(), p1.transform(Sample::getPileup), p2.transform(Sample::getPileup));
     if (!biallelicHeterozygote) nonSuperNovoReason = "Not biallelic heterozygote";
     else if (!deNovo) nonSuperNovoReason = "Not denovo";
-    else if (Math.min(p1.weightedDepth, p2.weightedDepth) < App.getInstance().getMinParentalDepth())
+    else if (Stream.of(p1, p2)
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .mapToDouble(Sample::getWeightedDepth)
+        .anyMatch(d -> d < App.getInstance().getMinParentalDepth()))
       nonSuperNovoReason = "Parental weighted depth < " + App.getInstance().getMinParentalDepth();
     else if (hapResults.getOtherDeNovos() != 0) nonSuperNovoReason = "Other denovos in region";
     else if (meanHaplotypeConcordance < App.getInstance().getMinHaplotypeConcordance())
-      nonSuperNovoReason = "Haplotype Concordance < " + App.getInstance().getMinHaplotypeConcordance();
+      nonSuperNovoReason =
+          "Haplotype Concordance < " + App.getInstance().getMinHaplotypeConcordance();
     else if (hapResults.getOtherTriallelics() != 0) nonSuperNovoReason = "Triallelics in region";
     else nonSuperNovoReason = NO_NON_SUPERNOVO_REASON;
     superNovo = nonSuperNovoReason.equals(NO_NON_SUPERNOVO_REASON);
@@ -403,9 +434,14 @@ public class DeNovoResult implements OutputFields, Serializable {
         .computeEndFromAlleles(alleles, position)
         .alleles(alleles)
         .genotypes(
-            new GenotypeBuilder(child.getId(), alleles).make(),
-            new GenotypeBuilder(p1.getId(), homRefAlleles).make(),
-            new GenotypeBuilder(p2.getId(), homRefAlleles).make())
+            Stream.concat(
+                    Stream.of(new GenotypeBuilder(child.getId(), alleles)),
+                    Stream.of(p1, p2)
+                        .filter(Optional::isPresent)
+                        .map(Optional::get)
+                        .map(p -> new GenotypeBuilder(p.getId(), homRefAlleles)))
+                .map(GenotypeBuilder::make)
+                .collect(ImmutableList.toImmutableList()))
         .make();
   }
 
@@ -437,162 +473,189 @@ public class DeNovoResult implements OutputFields, Serializable {
   public static void retrieveAnnos(
       Collection<DeNovoResult> deNovoResults,
       File vcfOutputRoot,
-      SAMSequenceDictionary dictionary,
-      String snpEffGenome) {
-    File intermediateVCFOutput =
+      SAMSequenceDictionary dictionary) {
+    final File intermediateVCFOutput =
         new File(vcfOutputRoot.getParentFile(), "TEMP_" + vcfOutputRoot.getName() + ".vcf.gz");
-    App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
-    List<String> cmd =
-        ImmutableList.<String>builder()
-            .add("java")
-            .add("-Xmx8G")
-            .add("-jar")
-            .add(App.getInstance().getSnpEffJar())
-            .add("eff")
-            .add(snpEffGenome)
-            .add("-")
-            .build();
+    final String genome = App.getInstance().getGenome();
+    if (App.getInstance().getSnpEffJar().isPresent()) {
+      App.LOG.log(Level.INFO, "Running SnpEff to annotate variants");
+      List<String> cmd =
+          ImmutableList.<String>builder()
+              .add("java")
+              .add("-Xmx8G")
+              .add("-jar")
+              .add(App.getInstance().getSnpEffJar().get())
+              .add("eff")
+              .add(genome)
+              .add("-")
+              .build();
 
-    try (VariantContextWriter snpEffOutWriter =
-        new VariantContextWriterBuilder().setOutputFile(intermediateVCFOutput).build()) {
-      Process snpEffProc = new ProcessBuilder(cmd).redirectError(Redirect.INHERIT).start();
-      Thread readInThread =
-          new Thread(
-              () -> {
-                try (VCFIterator vcfIter =
-                    new VCFIteratorBuilder()
-                        .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
-                  App.LOG.info(vcfIter.getHeader().toString());
-                  String annDescrip =
-                      vcfIter
-                          .getHeader()
-                          .getInfoHeaderLine(DeNovoResult.SNPEFF_ANN_FIELD)
-                          .getDescription();
-                  String[] annHeader =
-                      annDescrip
-                          .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
-                          .split(SNPEFF_ANN_DELIM);
-                  App.LOG.info(Arrays.toString(annHeader));
-                  Map<String, Integer> fieldIndices =
-                      IntStream.range(0, annHeader.length)
-                          .boxed()
-                          .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
-                  int annotated = 0;
-                  App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
-                  snpEffOutWriter.writeHeader(vcfIter.getHeader());
-                  for (DeNovoResult deNovoResult : deNovoResults) {
-                    VariantContext annotatedVC = vcfIter.next();
-                    snpEffOutWriter.add(annotatedVC);
-                    deNovoResult.setAnnos(annotatedVC, fieldIndices);
-                    if (annotated++ % 10000 == 0)
-                      App.LOG.log(
-                          Level.INFO,
-                          "Annotated " + annotated + " variants (of " + deNovoResults.size() + ")");
+      try (VariantContextWriter snpEffOutWriter =
+          new VariantContextWriterBuilder().setOutputFile(intermediateVCFOutput).build()) {
+        Process snpEffProc = new ProcessBuilder(cmd).redirectError(Redirect.INHERIT).start();
+        Thread readInThread =
+            new Thread(
+                () -> {
+                  try (VCFIterator vcfIter =
+                      new VCFIteratorBuilder()
+                          .open(new BufferedInputStream(snpEffProc.getInputStream()))) {
+                    App.LOG.info(vcfIter.getHeader().toString());
+                    String annDescrip =
+                        vcfIter
+                            .getHeader()
+                            .getInfoHeaderLine(DeNovoResult.SNPEFF_ANN_FIELD)
+                            .getDescription();
+                    String[] annHeader =
+                        annDescrip
+                            .substring(annDescrip.indexOf('\'') + 1, annDescrip.lastIndexOf('\''))
+                            .split(SNPEFF_ANN_DELIM);
+                    App.LOG.info(Arrays.toString(annHeader));
+                    Map<String, Integer> fieldIndices =
+                        IntStream.range(0, annHeader.length)
+                            .boxed()
+                            .collect(ImmutableMap.toImmutableMap(i -> annHeader[i], i -> i));
+                    int annotated = 0;
+                    App.LOG.log(Level.INFO, "Reading in SnpEff annotations");
+                    snpEffOutWriter.writeHeader(vcfIter.getHeader());
+                    for (DeNovoResult deNovoResult : deNovoResults) {
+                      VariantContext annotatedVC = vcfIter.next();
+                      snpEffOutWriter.add(annotatedVC);
+                      deNovoResult.setAnnos(annotatedVC, fieldIndices);
+                      if (annotated++ % 10000 == 0)
+                        App.LOG.log(
+                            Level.INFO,
+                            "Annotated "
+                                + annotated
+                                + " variants (of "
+                                + deNovoResults.size()
+                                + ")");
+                    }
+                    if (vcfIter.hasNext()) App.LOG.warn("VCF Iteration has not completed");
+                  } catch (IOException e) {
+                    App.LOG.error(e);
                   }
-                  if (vcfIter.hasNext()) App.LOG.warn("VCF Iteration has not completed");
-                } catch (IOException e) {
-                  App.LOG.error(e);
-                }
-              });
-      readInThread.start();
-      try (VariantContextWriter snpEffPipeWriter =
-          new VariantContextWriterBuilder()
-              .clearOptions()
-              .clearIndexCreator()
-              .setOutputVCFStream(new BufferedOutputStream(snpEffProc.getOutputStream()))
-              .build()) {
-        ImmutableList<String> samples =
-            deNovoResults
-                .stream()
-                .findFirst()
-                .map(dnr -> ImmutableList.of(dnr.child.getId(), dnr.p1.getId(), dnr.p2.getId()))
-                .orElseGet(ImmutableList::of);
-        VCFHeader vcfHeader =
-            new VCFHeader(ImmutableSet.of(VCFStandardHeaderLines.getFormatLine("GT")), samples);
-        vcfHeader.setSequenceDictionary(dictionary);
-        snpEffPipeWriter.writeHeader(vcfHeader);
-        App.LOG.log(Level.INFO, "Wrote VCF header to SnpEff, generating variants");
-        int generated = 0;
-        for (DeNovoResult deNovoResult : deNovoResults) {
-          snpEffPipeWriter.add(deNovoResult.generateVariantContext());
-          if (generated++ % 10000 == 0)
-            App.LOG.log(
-                Level.INFO,
-                "Generated " + generated + " variants (of " + deNovoResults.size() + ")");
+                });
+        readInThread.start();
+        try (VariantContextWriter snpEffPipeWriter =
+            new VariantContextWriterBuilder()
+                .clearOptions()
+                .clearIndexCreator()
+                .setOutputVCFStream(new BufferedOutputStream(snpEffProc.getOutputStream()))
+                .build()) {
+          writeUnannotatedVCF(deNovoResults, dictionary, snpEffPipeWriter);
         }
+        readInThread.join();
+      } catch (IOException e) {
+        App.LOG.error(e);
+      } catch (InterruptedException e) {
+        App.LOG.error(e);
+        Thread.currentThread().interrupt();
       }
-      readInThread.join();
-    } catch (IOException e) {
-      App.LOG.error(e);
-    } catch (InterruptedException e) {
-      App.LOG.error(e);
-      Thread.currentThread().interrupt();
+    } else if (App.getInstance().getAnnovarDir().isPresent()) {
+      try (VariantContextWriter annovarInputWriter =
+          new VariantContextWriterBuilder().setOutputFile(intermediateVCFOutput).build()) {
+        writeUnannotatedVCF(deNovoResults, dictionary, annovarInputWriter);
+      }
     }
-    App.LOG.info("Running annovar");
-    List<String> annovarCmd =
-        ImmutableList.of(
-            App.getInstance().getAnnovarDir() + ANNOVAR_TABLE_COMMAND,
-            intermediateVCFOutput.getPath(),
-            App.getInstance().getAnnovarDir() + "humandb/",
-            "-buildver",
-            snpEffGenome,
-            "-out",
-            vcfOutputRoot.getPath(),
-            "-remove",
-            "-protocol",
-            "refGene,cytoBand,exac03,avsnp147,dbnsfp30a",
-            "-operation",
-            "gx,r,f,f,f",
-            "-nastring",
-            ".",
-            "-vcfinput",
-            "--thread",
-            String.valueOf(ForkJoinPool.getCommonPoolParallelism()));
-    try {
-      Process annovarProc =
-          new ProcessBuilder(annovarCmd)
-              .redirectError(Redirect.INHERIT)
-              .redirectOutput(Redirect.INHERIT)
-              .start();
-      annovarProc.waitFor();
-    } catch (IOException e) {
-      App.LOG.error("An error occurreed while running annovar", e);
-    } catch (InterruptedException e) {
-      App.LOG.error(e);
-      Thread.currentThread().interrupt();
-    }
-    App.LOG.info("Finished running annovar, reading annotations");
-    try (VCFFileReader annovarVcfReader =
-            new VCFFileReader(new File(vcfOutputRoot.getPath() + ".hg19_multianno.vcf"), false);
-        CloseableIterator<VariantContext> annovarIter = annovarVcfReader.iterator()) {
-      AnnotationLibrary annovarLibrary =
-          new AnnotationLibrary(
-              annovarVcfReader
-                  .getFileHeader()
-                  .getInfoHeaderLines()
-                  .stream()
-                  .filter(info -> info.getDescription().contains("ANNOVAR"))
-                  .map(VCFInfoHeaderLine::getID)
-                  .collect(ImmutableList.toImmutableList()));
-      for (DeNovoResult result : deNovoResults) {
-        if (annovarIter.hasNext()) {
-          VariantContext vc = annovarIter.next();
-          if (result.position == vc.getStart()) {
-            result.annovar = annovarLibrary.new Annotation(vc);
-          } else {
-            App.LOG.error(
-                "Annovar VCF and results are not matched, \n\tnext result: "
-                    + result.pos
-                    + "\n\tnext annovar: "
-                    + vc.getContig()
-                    + ":"
-                    + vc.getStart());
-          }
+    if (App.getInstance().getAnnovarDir().isPresent()) {
+      App.LOG.info("Running annovar");
+      List<String> annovarCmd =
+          ImmutableList.of(
+              App.getInstance().getAnnovarDir() + ANNOVAR_TABLE_COMMAND,
+              intermediateVCFOutput.getPath(),
+              App.getInstance().getAnnovarDir() + "humandb/",
+              "-buildver",
+              genome,
+              "-out",
+              vcfOutputRoot.getPath(),
+              "-remove",
+              "-protocol",
+              "refGene,cytoBand,exac03,avsnp147,dbnsfp30a",
+              "-operation",
+              "gx,r,f,f,f",
+              "-nastring",
+              ".",
+              "-vcfinput",
+              "--thread",
+              String.valueOf(ForkJoinPool.getCommonPoolParallelism()));
+      try {
+        Process annovarProc =
+            new ProcessBuilder(annovarCmd)
+                .redirectError(Redirect.INHERIT)
+                .redirectOutput(Redirect.INHERIT)
+                .start();
+        annovarProc.waitFor();
+      } catch (IOException e) {
+        App.LOG.error("An error occurreed while running annovar", e);
+      } catch (InterruptedException e) {
+        App.LOG.error(e);
+        Thread.currentThread().interrupt();
+      }
+      App.LOG.info("Finished running annovar, reading annotations");
+      try (VCFFileReader annovarVcfReader =
+              new VCFFileReader(new File(vcfOutputRoot.getPath() + ".hg19_multianno.vcf"), false);
+          CloseableIterator<VariantContext> annovarIter = annovarVcfReader.iterator()) {
+        AnnotationLibrary annovarLibrary =
+            new AnnotationLibrary(
+                annovarVcfReader
+                    .getFileHeader()
+                    .getInfoHeaderLines()
+                    .stream()
+                    .filter(info -> info.getDescription().contains("ANNOVAR"))
+                    .map(VCFInfoHeaderLine::getID)
+                    .collect(ImmutableList.toImmutableList()));
+        for (DeNovoResult result : deNovoResults) {
+          if (annovarIter.hasNext()) {
+            VariantContext vc = annovarIter.next();
+            if (result.position == vc.getStart()) {
+              result.annovar = annovarLibrary.new Annotation(vc);
+            } else {
+              App.LOG.error(
+                  "Annovar VCF and results are not matched, \n\tnext result: "
+                      + result.pos
+                      + "\n\tnext annovar: "
+                      + vc.getContig()
+                      + ":"
+                      + vc.getStart());
+            }
 
-        } else {
-          App.LOG.error("Annovar VCF ended before annotating all de novo results");
+          } else {
+            App.LOG.error("Annovar VCF ended before annotating all de novo results");
+          }
         }
       }
+    }
+  }
+
+  private static void writeUnannotatedVCF(
+      Collection<DeNovoResult> deNovoResults,
+      SAMSequenceDictionary dictionary,
+      VariantContextWriter vcWriter) {
+    ImmutableList<String> samples =
+        deNovoResults
+            .stream()
+            .findFirst()
+            .map(
+                dnr ->
+                    Stream.concat(
+                            Stream.of(dnr.child),
+                            Stream.of(dnr.p1, dnr.p2)
+                                .filter(Optional::isPresent)
+                                .map(Optional::get))
+                        .map(Sample::getId))
+            .orElseGet(Stream::empty)
+            .collect(ImmutableList.toImmutableList());
+    VCFHeader vcfHeader =
+        new VCFHeader(ImmutableSet.of(VCFStandardHeaderLines.getFormatLine("GT")), samples);
+    vcfHeader.setSequenceDictionary(dictionary);
+    vcWriter.writeHeader(vcfHeader);
+    App.LOG.log(Level.INFO, "Wrote VCF header to SnpEff, generating variants");
+    int generated = 0;
+    for (DeNovoResult deNovoResult : deNovoResults) {
+      vcWriter.add(deNovoResult.generateVariantContext());
+      if (generated++ % 10000 == 0)
+        App.LOG.log(
+            Level.INFO, "Generated " + generated + " variants (of " + deNovoResults.size() + ")");
     }
   }
 

@@ -10,8 +10,10 @@ import java.util.function.Supplier;
 import org.pankratzlab.supernovo.pileup.Depth.Allele;
 import org.pankratzlab.supernovo.pileup.Pileup;
 import org.pankratzlab.supernovo.pileup.PileupCache;
+import com.google.common.base.Optional;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 
 public class HaplotypeEvaluator {
@@ -109,31 +111,42 @@ public class HaplotypeEvaluator {
   private final Pileup childPile;
   private final GenomePosition pos;
   private final PileupCache childPileups;
-  private final PileupCache p1Piles;
-  private final PileupCache p2Piles;
-  private final TrioEvaluator trioEvaluator;
-  /**
-   * @param child
-   * @param p1
-   * @param p2
-   */
+  private final Optional<PileupCache> p1Piles;
+  private final Optional<PileupCache> p2Piles;
+  private final AbstractEvaluator varEvaluator;
+
   public HaplotypeEvaluator(
       Pileup childPile,
       PileupCache childPileups,
       PileupCache p1Piles,
       PileupCache p2Piles,
-      TrioEvaluator trioEvaluator) {
+      AbstractEvaluator varEvaluator) {
+    this(childPile, childPileups, Optional.of(p1Piles), Optional.of(p2Piles), varEvaluator);
+  }
+
+  public HaplotypeEvaluator(
+      Pileup childPile, PileupCache childPileups, AbstractEvaluator varEvaluator) {
+    this(childPile, childPileups, Optional.absent(), Optional.absent(), varEvaluator);
+  }
+
+  private HaplotypeEvaluator(
+      Pileup childPile,
+      PileupCache childPileups,
+      Optional<PileupCache> p1Piles,
+      Optional<PileupCache> p2Piles,
+      AbstractEvaluator varEvaluator) {
     super();
     this.childPile = childPile;
     this.pos = childPile.getPosition();
     this.childPileups = childPileups;
     this.p1Piles = p1Piles;
     this.p2Piles = p2Piles;
-    this.trioEvaluator = trioEvaluator;
+    this.varEvaluator = varEvaluator;
   }
 
   public Result haplotypeConcordance() {
-    int startSearch = Integer.max(0, pos.getPosition() - App.getInstance().getHaplotypeSearchDistance());
+    int startSearch =
+        Integer.max(0, pos.getPosition() - App.getInstance().getHaplotypeSearchDistance());
     int stopSearch = pos.getPosition() + App.getInstance().getHaplotypeSearchDistance();
 
     Set<Integer> otherDenovoPositions = Sets.newHashSet();
@@ -141,31 +154,34 @@ public class HaplotypeEvaluator {
     int otherBiallelics = 0;
     int otherVariants = 0;
     ImmutableList.Builder<Double> concordances = ImmutableList.builder();
-    Function<PileupCache, Map<GenomePosition, Pileup>> getQueryPileups =
-        p ->
-            p.getRange(
-                new GenomePosition(pos.getContig(), startSearch),
-                new GenomePosition(pos.getContig(), stopSearch));
+    Function<Optional<PileupCache>, Map<GenomePosition, Pileup>> getQueryPileups =
+        o ->
+            o.transform(
+                    p ->
+                        p.getRange(
+                            new GenomePosition(pos.getContig(), startSearch),
+                            new GenomePosition(pos.getContig(), stopSearch)))
+                .or(ImmutableMap.of());
     Supplier<Map<GenomePosition, Pileup>> p1QueryPileups =
         Suppliers.memoize(() -> getQueryPileups.apply(p1Piles));
     Supplier<Map<GenomePosition, Pileup>> p2QueryPileups =
         Suppliers.memoize(() -> getQueryPileups.apply(p2Piles));
     for (Map.Entry<GenomePosition, Pileup> queryEntry :
-        getQueryPileups.apply(childPileups).entrySet()) {
+        getQueryPileups.apply(Optional.of(childPileups)).entrySet()) {
       GenomePosition searchPosition = queryEntry.getKey();
       if (searchPosition.equals(pos)) continue;
       Pileup searchPileup = queryEntry.getValue();
       if (searchPileup.getDepth().getBiAlleles().size() == 2) {
-        if (trioEvaluator.looksVariant(searchPileup.getDepth())) {
+        if (varEvaluator.looksVariant(searchPileup.getDepth())) {
           otherVariants++;
-          if (trioEvaluator.moreThanTwoViableAlleles(searchPileup)) {
+          if (varEvaluator.moreThanTwoViableAlleles(searchPileup)) {
             otherTriallelics++;
           } else {
             otherBiallelics++;
             concordance(childPile, searchPileup).ifPresent(concordances::add);
           }
         }
-        if (((trioEvaluator.passesAllelicFrac(searchPileup.getDepth())
+        if (((varEvaluator.passesAllelicFrac(searchPileup.getDepth())
                     && TrioEvaluator.passesAllelicDepth(
                         searchPileup.getDepth(), App.getInstance().getMinOtherDNAllelicDepth()))
                 || TrioEvaluator.passesAllelicDepth(
@@ -173,10 +189,10 @@ public class HaplotypeEvaluator {
                     App.getInstance().getMinOtherDNAllelicDepthIndependent()))
             && concordance(childPile, searchPileup).orElse(0.0)
                 >= App.getInstance().getMinHaplotypeConcordance()
-            && trioEvaluator.looksDenovo(
+            && varEvaluator.looksDenovo(
                 searchPileup,
-                p1QueryPileups.get().get(searchPosition),
-                p2QueryPileups.get().get(searchPosition))) {
+                Optional.fromNullable(p1QueryPileups.get().get(searchPosition)),
+                Optional.fromNullable(p2QueryPileups.get().get(searchPosition)))) {
           otherDenovoPositions.add(searchPosition.getPosition());
         }
       }
