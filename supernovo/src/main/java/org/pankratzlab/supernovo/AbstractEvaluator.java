@@ -66,6 +66,18 @@ public abstract class AbstractEvaluator implements Evaluator {
   private ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>> results;
   private final PileupCache childPileups;
 
+  private void maybeLogParseProgress(VariantContext vc) {
+    int processedVariants = contigLogCount.count(vc.getContig());
+    if (processedVariants % 10000 == 0 && processedVariants != 0) {
+      App.LOG.info(
+          "Parsed "
+              + contigLogCount.count(vc.getContig())
+              + " positions on contig "
+              + vc.getContig());
+    }
+    contigLogCount.add(vc.getContig());
+  }
+
   private void serializeChunkedProgress(File chunkedSerOutput, Thread generateResultsThread) {
     long lastSerialize = System.currentTimeMillis();
     while (generateResultsThread.isAlive()) {
@@ -133,11 +145,28 @@ public abstract class AbstractEvaluator implements Evaluator {
                     .map(r -> ImmutableMap.of(r, evaluate(r)))
                     .forEach(results::putAll));
     evaluateVariantsThreads.start();
+    new Thread(() -> logProgress(variantsToInclude.size(), evaluateVariantsThreads))
+        .start();
+    try {
+      evaluateVariantsThreads.join();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    App.LOG.info(
+        "Finished evaluating "
+            + results.size()
+            + " (of "
+            + variantsToInclude.size()
+            + " expected) variants for de novo mutations");
+  }
+
+  private void logProgress(int totalVariantsCount, Thread evaluateVariantsThreads) {
     long lastProgressLog = 0L;
     while (evaluateVariantsThreads.isAlive()) {
       if (System.currentTimeMillis() - lastProgressLog > 600000) {
         App.LOG.info(
-            "Processed " + results.size() + " variants (of " + variantsRemaining.size() + " total");
+            "Processed " + results.size() + " variants (of " + totalVariantsCount + " total");
+        lastProgressLog = System.currentTimeMillis();
       }
       try {
         Thread.sleep(60000);
@@ -145,21 +174,6 @@ public abstract class AbstractEvaluator implements Evaluator {
         Thread.currentThread().interrupt();
       }
     }
-
-    App.LOG.info(
-        "Finished evaluating " + variantsRemaining.size() + " variants for de novo mutations");
-  }
-
-  private void maybeLogParseProgress(VariantContext vc) {
-    int processedVariants = contigLogCount.count(vc.getContig());
-    if (processedVariants % 10000 == 0 && processedVariants != 0) {
-      App.LOG.info(
-          "Parsed "
-              + contigLogCount.count(vc.getContig())
-              + " positions on contig "
-              + vc.getContig());
-    }
-    contigLogCount.add(vc.getContig());
   }
 
   public AbstractEvaluator(File bam) {
@@ -195,7 +209,8 @@ public abstract class AbstractEvaluator implements Evaluator {
     results = prevResults.or(ConcurrentHashMap::new);
     Thread generateResultsThread = new Thread(() -> this.generateResults(vcf));
     generateResultsThread.start();
-    new Thread(() -> this.serializeChunkedProgress(chunkedSerOutput, generateResultsThread)).run();
+    new Thread(() -> this.serializeChunkedProgress(chunkedSerOutput, generateResultsThread))
+        .start();
     try {
       generateResultsThread.join();
     } catch (InterruptedException e) {
