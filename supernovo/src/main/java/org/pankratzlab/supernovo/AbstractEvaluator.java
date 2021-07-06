@@ -66,6 +66,26 @@ public abstract class AbstractEvaluator implements Evaluator {
   private ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>> results;
   private final PileupCache childPileups;
 
+  private void serializeChunkedProgress(File chunkedSerOutput, Thread generateResultsThread) {
+    long lastSerialize = System.currentTimeMillis();
+    while (generateResultsThread.isAlive()) {
+      if (System.currentTimeMillis() - lastSerialize > 600000) {
+        File tempChunkedSerOutput = new File(chunkedSerOutput.getPath() + "_TEMP");
+        serializeResults(tempChunkedSerOutput);
+        if (!tempChunkedSerOutput.renameTo(chunkedSerOutput)) {
+          App.LOG.error("Failed to overwrite temp chunked output, chunking may not be reloadable");
+        }
+        lastSerialize = System.currentTimeMillis();
+      } else {
+        try {
+          Thread.sleep(60000);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
+  }
+
   private void generateResults(File vcf) {
     LoadingCache<Thread, VCFFileReader> perThreadReaders =
         CacheBuilder.newBuilder().build(CacheLoader.from(t -> new VCFFileReader(vcf)));
@@ -152,43 +172,34 @@ public abstract class AbstractEvaluator implements Evaluator {
     File vcfOutput = formVCFOutput(output);
     File serOutput = formSerializedOutput(output);
     File chunkedSerOutput = formChunkedSerializedOutput(output);
-    results = new ConcurrentHashMap<>();
+    Optional<ConcurrentHashMap<ReferencePosition, Optional<DeNovoResult>>> prevResults =
+        Optional.absent();
     if (serOutput.exists()) {
       App.LOG.info("Previous serialized output already exists, loading...");
       try {
-        results = deserializeResults(serOutput);
+        prevResults = Optional.of(deserializeResults(serOutput));
         App.LOG.info("Serialized output loaded");
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
       }
     }
-    if (chunkedSerOutput.exists()) {
+    if (chunkedSerOutput.exists() && !prevResults.isPresent()) {
       App.LOG.info("Previous chunked progress serialized output already exists, loading...");
       try {
-        results = deserializeResults(chunkedSerOutput);
+        prevResults = Optional.of(deserializeResults(chunkedSerOutput));
         App.LOG.info("Serialized output loaded");
       } catch (Exception e) {
         App.LOG.error("Error loading serialized results, regenerating", e);
       }
     }
+    results = prevResults.or(ConcurrentHashMap::new);
     Thread generateResultsThread = new Thread(() -> this.generateResults(vcf));
     generateResultsThread.start();
-    long lastSerialize = 0;
-    while (generateResultsThread.isAlive()) {
-      if (System.currentTimeMillis() - lastSerialize > 600000) {
-        File tempChunkedSerOutput = new File(chunkedSerOutput.getPath() + "_TEMP");
-        serializeResults(tempChunkedSerOutput);
-        if (!tempChunkedSerOutput.renameTo(chunkedSerOutput)) {
-          App.LOG.error("Failed to overwrite temp chunked output, chunking may not be reloadable");
-        }
-        lastSerialize = System.currentTimeMillis();
-      } else {
-        try {
-          Thread.sleep(60000);
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-        }
-      }
+    new Thread(() -> this.serializeChunkedProgress(chunkedSerOutput, generateResultsThread)).run();
+    try {
+      generateResultsThread.join();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
     ImmutableList<DeNovoResult> resultsList =
         results
