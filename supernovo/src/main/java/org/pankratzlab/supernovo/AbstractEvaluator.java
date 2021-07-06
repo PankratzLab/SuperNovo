@@ -129,7 +129,7 @@ public abstract class AbstractEvaluator implements Evaluator {
             .stream()
             .filter(Predicates.not(results::containsKey))
             .collect(ImmutableSet.toImmutableSet());
-    App.LOG.info("Parsed variants in " + (1000 * (System.currentTimeMillis() - time)) + " seconds");
+    App.LOG.info("Parsed variants in " + (System.currentTimeMillis() - time) / 1000 + " seconds");
     perThreadReaders.asMap().values().forEach(VCFFileReader::close);
 
     App.LOG.info("Evaluating " + variantsRemaining.size() + " variants for de novo mutations");
@@ -145,8 +145,7 @@ public abstract class AbstractEvaluator implements Evaluator {
                     .map(r -> ImmutableMap.of(r, evaluate(r)))
                     .forEach(results::putAll));
     evaluateVariantsThreads.start();
-    new Thread(() -> logProgress(variantsToInclude.size(), evaluateVariantsThreads))
-        .start();
+    new Thread(() -> logProgress(variantsToInclude.size(), evaluateVariantsThreads)).start();
     try {
       evaluateVariantsThreads.join();
     } catch (InterruptedException e) {
