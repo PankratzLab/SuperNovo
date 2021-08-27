@@ -305,8 +305,8 @@ public abstract class AbstractEvaluator implements Evaluator {
   }
 
   private boolean isSingleNonRef(Genotype geno) {
-    return (geno.getPloidy() == 1 || (geno.isHet() && !geno.isHetNonRef()))
-        && geno.getAlleles().stream().mapToInt(Allele::length).allMatch(i -> i == 1);
+    return (geno.getPloidy() == 1 || (geno.isHet() && !geno.isHetNonRef()));
+    //        && geno.getAlleles().stream().mapToInt(Allele::length).allMatch(i -> i == 1);
   }
 
   private Optional<ReferencePosition> generatePosition(VariantContext vc) {
@@ -322,10 +322,10 @@ public abstract class AbstractEvaluator implements Evaluator {
 
   private Optional<DeNovoResult> evaluate(ReferencePosition pos) {
     Pileup childPile = childPileups.get(pos);
-    if (looksVariant(childPile.getDepth())) {
-      return Optional.of(generateDeNovoResult(pos, childPile, childPileups));
-    }
-    return Optional.absent();
+    //    if (looksVariant(childPile.getDepth())) {
+    return Optional.of(generateDeNovoResult(pos, childPile, childPileups));
+    //    }
+    //    return Optional.absent();
   }
 
   private static File formSerializedOutput(File textOutput) {
