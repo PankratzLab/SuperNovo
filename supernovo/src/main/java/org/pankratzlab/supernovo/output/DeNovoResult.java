@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -283,7 +284,7 @@ public class DeNovoResult implements OutputFields, Serializable {
     }
   }
 
-  private static final String NO_NON_SUPERNOVO_REASON = ".";
+  private static final String NO_NON_SUPER_REASON = ".";
 
   private static final String SNPEFF_ANN_FIELD = "ANN";
   private static final String SNPEFF_ANN_DELIM = "[\\s]?\\|[\\s]?";
@@ -309,9 +310,10 @@ public class DeNovoResult implements OutputFields, Serializable {
   public final Optional<PileAllele> dnAllele;
   public final Optional<Boolean> dnIsRef;
   public boolean biallelicHeterozygote;
+  public boolean superVariant;
   public boolean deNovo;
   public boolean superNovo;
-  public String nonSuperNovoReason;
+  public String nonSuperReason;
   public final double meanHaplotypeConcordance;
   public final int overlappingReadsHetCount;
   public final int overlappingReadsDiscordantHetCount;
@@ -396,25 +398,32 @@ public class DeNovoResult implements OutputFields, Serializable {
   }
 
   private void setFlags() {
+    StringJoiner nonSuperBuilder = new StringJoiner(", ");
+    nonSuperBuilder.setEmptyValue(NO_NON_SUPER_REASON);
     biallelicHeterozygote = TrioEvaluator.looksBiallelic(child.getPileup());
+    int minParentalDepth = App.getInstance().getMinParentalDepth();
+    boolean lowParentalDepth =
+        (Stream.of(p1, p2)
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .mapToDouble(Sample::getWeightedDepth)
+            .anyMatch(d -> d < minParentalDepth));
+    boolean otherDeNovos = hapResults.getOtherDeNovos() != 0;
+    double minHapConcordance = App.getInstance().getMinHaplotypeConcordance();
+    boolean lowHapConcordance = meanHaplotypeConcordance < minHapConcordance;
+    boolean otherTriallelics = hapResults.getOtherTriallelics() != 0;
+
+    if (!biallelicHeterozygote) nonSuperBuilder.add("Not biallelic heterozygote");
+    if (lowParentalDepth) nonSuperBuilder.add("Parental weighted depth < " + minParentalDepth);
+    if (otherDeNovos) nonSuperBuilder.add("Other denovos in region");
+    if (lowHapConcordance) nonSuperBuilder.add("Haplotype Concordance < " + minHapConcordance);
+    if (otherTriallelics) nonSuperBuilder.add("Triallelics in region");
+    nonSuperReason = nonSuperBuilder.toString();
+    superVariant = nonSuperReason.equals(NO_NON_SUPER_REASON);
     deNovo =
         TrioEvaluator.looksDenovo(
             child.getPileup(), p1.transform(Sample::getPileup), p2.transform(Sample::getPileup));
-    if (!biallelicHeterozygote) nonSuperNovoReason = "Not biallelic heterozygote";
-    else if (!deNovo) nonSuperNovoReason = "Not denovo";
-    else if (Stream.of(p1, p2)
-        .filter(Optional::isPresent)
-        .map(Optional::get)
-        .mapToDouble(Sample::getWeightedDepth)
-        .anyMatch(d -> d < App.getInstance().getMinParentalDepth()))
-      nonSuperNovoReason = "Parental weighted depth < " + App.getInstance().getMinParentalDepth();
-    else if (hapResults.getOtherDeNovos() != 0) nonSuperNovoReason = "Other denovos in region";
-    else if (meanHaplotypeConcordance < App.getInstance().getMinHaplotypeConcordance())
-      nonSuperNovoReason =
-          "Haplotype Concordance < " + App.getInstance().getMinHaplotypeConcordance();
-    else if (hapResults.getOtherTriallelics() != 0) nonSuperNovoReason = "Triallelics in region";
-    else nonSuperNovoReason = NO_NON_SUPERNOVO_REASON;
-    superNovo = nonSuperNovoReason.equals(NO_NON_SUPERNOVO_REASON);
+    superNovo = deNovo && superVariant;
   }
 
   public VariantContext generateVariantContext() {
@@ -671,6 +680,7 @@ public class DeNovoResult implements OutputFields, Serializable {
     result = prime * result + ((allele1 == null) ? 0 : allele1.hashCode());
     result = prime * result + ((allele2 == null) ? 0 : allele2.hashCode());
     result = prime * result + ((altAllele == null) ? 0 : altAllele.hashCode());
+    result = prime * result + ((annovar == null) ? 0 : annovar.hashCode());
     result = prime * result + (biallelicHeterozygote ? 1231 : 1237);
     result = prime * result + ((child == null) ? 0 : child.hashCode());
     result = prime * result + ((chr == null) ? 0 : chr.hashCode());
@@ -681,7 +691,7 @@ public class DeNovoResult implements OutputFields, Serializable {
     long temp;
     temp = Double.doubleToLongBits(meanHaplotypeConcordance);
     result = prime * result + (int) (temp ^ (temp >>> 32));
-    result = prime * result + ((nonSuperNovoReason == null) ? 0 : nonSuperNovoReason.hashCode());
+    result = prime * result + ((nonSuperReason == null) ? 0 : nonSuperReason.hashCode());
     result = prime * result + overlapingReadsThirdAlleleCount;
     result = prime * result + overlappingReadsAdjacentDeNovoCounts;
     result = prime * result + overlappingReadsDiscordantHetCount;
@@ -699,6 +709,7 @@ public class DeNovoResult implements OutputFields, Serializable {
     result = prime * result + ((snpeffHGVSp == null) ? 0 : snpeffHGVSp.hashCode());
     result = prime * result + ((snpeffImpact == null) ? 0 : snpeffImpact.hashCode());
     result = prime * result + (superNovo ? 1231 : 1237);
+    result = prime * result + (superVariant ? 1231 : 1237);
     return result;
   }
 
@@ -706,7 +717,7 @@ public class DeNovoResult implements OutputFields, Serializable {
   public boolean equals(Object obj) {
     if (this == obj) return true;
     if (obj == null) return false;
-    if (!(obj instanceof DeNovoResult)) return false;
+    if (getClass() != obj.getClass()) return false;
     DeNovoResult other = (DeNovoResult) obj;
     if (allele1 == null) {
       if (other.allele1 != null) return false;
@@ -717,6 +728,9 @@ public class DeNovoResult implements OutputFields, Serializable {
     if (altAllele == null) {
       if (other.altAllele != null) return false;
     } else if (!altAllele.equals(other.altAllele)) return false;
+    if (annovar == null) {
+      if (other.annovar != null) return false;
+    } else if (!annovar.equals(other.annovar)) return false;
     if (biallelicHeterozygote != other.biallelicHeterozygote) return false;
     if (child == null) {
       if (other.child != null) return false;
@@ -736,9 +750,9 @@ public class DeNovoResult implements OutputFields, Serializable {
     } else if (!hapResults.equals(other.hapResults)) return false;
     if (Double.doubleToLongBits(meanHaplotypeConcordance)
         != Double.doubleToLongBits(other.meanHaplotypeConcordance)) return false;
-    if (nonSuperNovoReason == null) {
-      if (other.nonSuperNovoReason != null) return false;
-    } else if (!nonSuperNovoReason.equals(other.nonSuperNovoReason)) return false;
+    if (nonSuperReason == null) {
+      if (other.nonSuperReason != null) return false;
+    } else if (!nonSuperReason.equals(other.nonSuperReason)) return false;
     if (overlapingReadsThirdAlleleCount != other.overlapingReadsThirdAlleleCount) return false;
     if (overlappingReadsAdjacentDeNovoCounts != other.overlappingReadsAdjacentDeNovoCounts)
       return false;
@@ -779,6 +793,7 @@ public class DeNovoResult implements OutputFields, Serializable {
       if (other.snpeffImpact != null) return false;
     } else if (!snpeffImpact.equals(other.snpeffImpact)) return false;
     if (superNovo != other.superNovo) return false;
+    if (superVariant != other.superVariant) return false;
     return true;
   }
 }
